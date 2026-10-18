@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.0.2";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -1050,7 +1050,7 @@ async function start() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await Sync.init();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").then(reg => {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
       reg.addEventListener("updatefound", () => { const w = reg.installing; if (!w) return;
         w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) toast("Új verzió letöltve – a következő indításkor él."); }); });
     }).catch(console.error);

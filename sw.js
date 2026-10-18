@@ -1,5 +1,5 @@
 // Tervezői jegyzetfüzet – service worker (offline működés)
-const VERSION = "jf-v1.0.1";
+const VERSION = "jf-v1.0.2";
 const SHELL = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png"];
 const LIBS = "jf-libs-v1";
@@ -29,7 +29,8 @@ self.addEventListener("fetch", e => {
   }
   if (url.origin === location.origin) {
     // App-váz: hálózat először (friss verzió), offline esetén cache
-    e.respondWith(fetch(e.request).then(res => {
+    // a böngésző HTTP-gyorsítótárát megkerülve kérjük le, hogy egy frissítés azonnal megérkezzen
+    e.respondWith(fetch(e.request.url, { cache: "no-cache", credentials: "same-origin" }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match("./index.html"))));
