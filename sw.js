@@ -1,5 +1,5 @@
 // Tervezői jegyzetfüzet – service worker (offline működés)
-const VERSION = "jf-v1.0.0";
+const VERSION = "jf-v1.0.1";
 const SHELL = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png"];
 const LIBS = "jf-libs-v1";

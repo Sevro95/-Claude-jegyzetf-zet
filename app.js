@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -837,9 +837,6 @@ const Sync = {
     if (!this.ids.root) { this.ids = { root: null, lapok: null, index: null, open: null, summary: null, files: {}, bgs: {}, pushed: {} };
       this.ids.root = await this.folder("Tervezői jegyzetfüzet", "root"); }
     if (!this.ids.lapok) this.ids.lapok = await this.folder("Lapok", this.ids.root);
-    if (!this.ids.summary) { const f = await this.find("Napi összefoglalók.md", this.ids.root);
-      this.ids.summary = f ? f.id : await this.upload(null, "Napi összefoglalók.md", "text/markdown",
-        "# Napi összefoglalók\n\n_A legfrissebb összefoglaló kerül legfelülre. Ezt a fájlt a napi ütemezett feladat tölti._\n", this.ids.root, { jf: "summary" }); }
     await this.saveIds();
   },
   async run(interactive) {
@@ -958,14 +955,14 @@ document.addEventListener("click", e => {
   Sync.auth(false).then(() => { Sync.needAuth = false; Sync.schedule(500); }).catch(() => { Sync.needAuth = true; Sync.status(); }).finally(() => { authing = false; });
 }, true);
 $("sync").onclick = () => { if (!S.set.driveOn || !S.set.clientId) settingsDialog(); else Sync.run(true); };
-$("mSummary").onclick = async () => {
+$("mSummary").onclick = () => {
   closePops();
-  if (!S.set.driveOn || !S.set.clientId) { dialog("Napi összefoglalók", "<p>Az összefoglalók a Google Drive-on keresztül érkeznek. Előbb kapcsold be a szinkront a Beállításokban.</p>", [["Rendben", "pri"]]); return; }
-  busy("Összefoglalók letöltése…");
-  try { await Sync.auth(true); await Sync.ensureFolders(); const t = await Sync.download(Sync.ids.summary); unbusy();
-    const body = document.createElement("div"); body.className = "dlgbody"; const pre = document.createElement("pre"); pre.textContent = t; body.append(pre);
-    dialog("Napi összefoglalók", body, [["Bezárás", "pri"]]);
-  } catch (e) { unbusy(); toast("Nem sikerült letölteni: " + e.message); }
+  if (!S.set.driveOn || !S.set.clientId || !Sync.ids || !Sync.ids.root) {
+    dialog("Napi összefoglalók", "<p>Az összefoglalók a Google Drive „Tervezői jegyzetfüzet / Napi összefoglalók” mappájába érkeznek. Ehhez előbb kapcsold be a szinkront a Beállításokban.</p>", [["Rendben", "pri"]]); return;
+  }
+  // Az összefoglalókat az ütemezett feladat hozza létre, az app ezeket nem látja (drive.file), ezért a Drive-mappát nyitjuk meg
+  const url = "https://drive.google.com/drive/folders/" + Sync.ids.root;
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; document.body.append(a); a.click(); a.remove();
 };
 
 /* ================= Beállítások ================= */
