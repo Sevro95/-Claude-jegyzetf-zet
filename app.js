@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.1.0";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -53,6 +53,7 @@ const DB = {
 const DEF_SET = {
   penColor: INK, penW: 2.6, hiColor: "#f2c200", hiW: 3, erMode: "stroke", erR: 12,
   recentPen: ["#1f4fd1", "#c62828", "#2e7d32"], recentHi: ["#7fd36b", "#5ec8f0", "#f59ab5"],
+  recentW: { pen: [], hi: [] }, favW: { pen: null, hi: null },
   rail: "right", lastNb: null, lastPage: {}, clientId: "", driveOn: false,
 };
 const S = {
@@ -219,6 +220,40 @@ function strikeFor(pg, m) {
   for (const s of cand) { if (s.bb[0] - right > 22 * MM) break; right = Math.max(right, s.bb[2]); any = true; }
   return any ? [m.x + BOX + 1.5 * MM, m.y + BOX / 2, right + 1 * MM] : null;
 }
+const QFS = 3.4 * MM, QPAD = 1.8 * MM, QMAXW = 75 * MM;
+const measureCtx = document.createElement("canvas").getContext("2d");
+/* Kérdés szövegbuborék elrendezése (a kör mellett jobbra, ha nem fér el: alatta) */
+function qLayout(m) {
+  if (!m.text || !m.text.trim()) return null;
+  const c = measureCtx; c.font = `500 ${QFS}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const lines = [];
+  for (const para of m.text.trim().split(/\n/)) {
+    let cur = "";
+    for (const w of para.split(/\s+/)) { const t = cur ? cur + " " + w : w;
+      if (cur && c.measureText(t).width > QMAXW) { lines.push(cur); cur = w; } else cur = t; }
+    lines.push(cur);
+  }
+  const tw = Math.max(...lines.map(l => c.measureText(l).width));
+  const w = Math.min(QMAXW, tw) + 2 * QPAD, h = lines.length * QFS * 1.3 - QFS * .3 + 2 * QPAD;
+  let x = m.x + QR + 3 * MM, y = m.y - Math.min(h / 2, QR + QPAD), below = false;
+  if (x + w > W - 3 * MM) { x = Math.max(3 * MM, Math.min(m.x - w / 2, W - 3 * MM - w)); y = m.y + QR + 2.5 * MM; below = true; }
+  return { x, y, w, h, lines, below };
+}
+function drawBubble(x, m, L) {
+  const col = m.done ? "#2e7d32" : "#c25a00";
+  x.save(); x.lineWidth = 1.8; x.strokeStyle = col; x.fillStyle = m.done ? "#eef7ee" : "#fff4e8";
+  x.beginPath(); if (x.roundRect) x.roundRect(L.x, L.y, L.w, L.h, 2 * MM); else x.rect(L.x, L.y, L.w, L.h);
+  x.fill(); x.stroke();
+  // csőr a kör felé
+  x.beginPath();
+  if (L.below) { const cx = Math.min(Math.max(m.x, L.x + 3 * MM), L.x + L.w - 3 * MM); x.moveTo(cx - 1.6 * MM, L.y + .5); x.lineTo(m.x, m.y + QR + .5); x.lineTo(cx + 1.6 * MM, L.y + .5); }
+  else { const cy = Math.min(Math.max(m.y, L.y + 2.5 * MM), L.y + L.h - 2.5 * MM); x.moveTo(L.x + .5, cy - 1.6 * MM); x.lineTo(m.x + QR + .5, m.y); x.lineTo(L.x + .5, cy + 1.6 * MM); }
+  x.fill(); x.stroke();
+  x.fillStyle = m.done ? "#5e6a75" : INK; x.font = `500 ${QFS}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  x.textAlign = "left"; x.textBaseline = "top";
+  L.lines.forEach((t, i) => x.fillText(t, L.x + QPAD, L.y + QPAD + i * QFS * 1.3));
+  x.restore();
+}
 function drawMark(x, m) {
   x.save(); x.lineCap = "round"; x.lineJoin = "round";
   if (m.k === "box") {
@@ -231,6 +266,7 @@ function drawMark(x, m) {
     x.beginPath(); x.arc(m.x, m.y, QR, 0, 7); x.stroke();
     if (m.done) { x.lineWidth = 3; x.beginPath(); x.moveTo(m.x - QR * .45, m.y + QR * .02); x.lineTo(m.x - QR * .1, m.y + QR * .38); x.lineTo(m.x + QR * .5, m.y - QR * .38); x.stroke(); }
     else { x.font = `700 ${QR * 1.35}px system-ui, sans-serif`; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("?", m.x, m.y + QR * .06); }
+    const L = qLayout(m); if (L) { x.restore(); drawBubble(x, m, L); return; }
   }
   x.restore();
 }
@@ -261,7 +297,7 @@ async function renderPageCanvas(pg, widthPx) {
 let act = null, pan = null, penUntil = 0;
 const ptOf = e => { const r = cL.getBoundingClientRect(); return [(e.clientX - r.left) / SC, (e.clientY - r.top) / SC]; };
 const pressureOf = e => e.pointerType === "pen" ? Math.max(.05, Math.min(1, e.pressure || .5)) : .5;
-const isEraserEvt = e => (e.buttons & 32) || e.button === 5 || (e.pointerType === "pen" && (e.buttons & 2));
+const isEraserEvt = e => !!((e.buttons & 32) || (e.buttons & 2) || e.button === 5 || e.button === 2);
 const snapshot = pg => ({ strokes: pg.strokes.slice(), marks: pg.marks.map(m => ({ ...m })) });
 function pushUndo(pg, snap) {
   if (!S.undo.has(pg.id)) S.undo.set(pg.id, []);
@@ -279,20 +315,44 @@ $("bRedo").onclick = () => { const pg = S.page, r = S.redo.get(pg.id) || []; if 
 function markAt(pg, x, y, k) {
   for (let i = pg.marks.length - 1; i >= 0; i--) { const m = pg.marks[i]; if (k && m.k !== k) continue;
     if (m.k === "box" ? (x >= m.x - 2 * MM && x <= m.x + BOX + 2 * MM && y >= m.y - 2 * MM && y <= m.y + BOX + 2 * MM)
-      : Math.hypot(x - m.x, y - m.y) <= QR + 2 * MM) return m; }
+      : (Math.hypot(x - m.x, y - m.y) <= QR + 2 * MM || (() => { const L = qLayout(m); return L && x >= L.x && x <= L.x + L.w && y >= L.y && y <= L.y + L.h; })())) return m; }
   return null;
+}
+function questionDialog(pg, m, x, y) {
+  const isNew = !m;
+  const body = document.createElement("div"); body.className = "dlgbody";
+  body.innerHTML = `<label for="qText">Kérdés</label><textarea id="qText" rows="4" maxlength="400" placeholder="Mi a kérdés?"></textarea>` +
+    (isNew ? "" : `<p>${m.done ? "Lezárt kérdés" : "Nyitott kérdés"} · ${fmtDate(m.ts)}</p>`);
+  const ta = body.querySelector("#qText"); ta.value = isNew ? "" : (m.text || "");
+  const save = done => {
+    const text = ta.value.trim(); pushUndo(pg, snapshot(pg));
+    if (isNew) pg.marks.push({ id: uid(), k: "q", x, y, done: false, ts: Date.now(), text });
+    else { const t = pg.marks.find(q => q.id === m.id); if (t) { t.text = text; t.mt = Date.now(); if (done !== undefined) { t.done = done; t.dt = Date.now(); } } }
+    drawInk(); touchPage(pg);
+  };
+  const btns = [];
+  if (!isNew) btns.push(["Törlés", "dan", () => { pushUndo(pg, snapshot(pg)); pg.marks = pg.marks.filter(q => q.id !== m.id); drawInk(); touchPage(pg); toast("Kérdés törölve"); }]);
+  btns.push(["Mégse"]);
+  if (!isNew) { const wasDone = !!m.done; btns.push([wasDone ? "Újranyitás" : "Lezárás", "", () => { save(!wasDone); toast(wasDone ? "Kérdés újra nyitott" : "Kérdés lezárva"); }]); }
+  btns.push(["Mentés", "pri", () => save()]);
+  dialog(isNew ? "Új kérdés" : "Kérdés", body, btns);
+  setTimeout(() => ta.focus(), 60);
 }
 function toggleMark(pg, m) { pushUndo(pg, snapshot(pg)); m.done = !m.done; m.dt = Date.now(); drawInk(); touchPage(pg);
   toast(m.k === "box" ? (m.done ? "Feladat kész" : "Feladat újra nyitott") : (m.done ? "Kérdés lezárva" : "Kérdés újra nyitott")); }
 
 const capture = e => { try { cL.setPointerCapture(e.pointerId); } catch (err) {} };
 cL.addEventListener("contextmenu", e => e.preventDefault());
+let penDbg = false;
+const dbgShow = (e, kind) => { if (!penDbg) return; const d = $("penDbg"); d.hidden = false;
+  d.textContent = `${kind}  típus: ${e.pointerType}  button: ${e.button}  buttons: ${e.buttons}  nyomás: ${(e.pressure || 0).toFixed(2)}  → radír: ${isEraserEvt(e) ? "IGEN" : "nem"}`; };
+for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) cL.addEventListener(t, e => dbgShow(e, t.replace("pointer", "")), true);
 cL.addEventListener("pointerdown", e => {
   if (e.pointerType === "touch") {
     if (act || Date.now() < penUntil) return; // tenyérfelismerés
     pan = { id: e.pointerId, y: e.clientY, st: $("desk").scrollTop }; capture(e); return;
   }
-  if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 5) return;
+  if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 2 && e.button !== 5) return;
   if (act) return;
   pan = null; e.preventDefault(); capture(e); closePops();
   if (e.pointerType === "pen") penUntil = Date.now() + 800;
@@ -320,6 +380,10 @@ cL.addEventListener("pointermove", e => {
   if (!act || e.pointerId !== act.id) return;
   if (e.pointerType === "pen") penUntil = Date.now() + 800;
   const evs = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+  // ha írás közben nyomja le az S Pen gombot: radírra váltunk
+  if ((act.kind === "draw" || act.kind === "tap") && isEraserEvt(e)) {
+    xL.clearRect(0, 0, W, H); act = { kind: "erase", id: act.id, snap: snapshot(S.page), changed: false };
+  }
   if (act.kind === "tap") {
     if (Math.hypot(e.clientX - act.sx, e.clientY - act.sy) > 6) { const p0 = act.p0; startStroke(act.id, p0); } else return;
   }
@@ -340,11 +404,12 @@ function endPointer(e) {
   if (pan && e.pointerId === pan.id) { pan = null; return; }
   if (!act || e.pointerId !== act.id) return;
   const a = act; act = null; const pg = S.page;
-  if (a.kind === "tap") { toggleMark(pg, a.m); return; }
+  if (a.kind === "tap") { if (a.m.k === "q") questionDialog(pg, a.m); else toggleMark(pg, a.m); return; }
   if (a.kind === "erase") { if (a.changed) { pushUndo(pg, a.snap); touchPage(pg); } return; }
   if (a.kind === "place") {
     const k = S.tool, m = markAt(pg, a.x, a.y, k);
-    if (m) { toggleMark(pg, m); return; }
+    if (m) { if (k === "q") questionDialog(pg, m); else toggleMark(pg, m); return; }
+    if (k === "q") { questionDialog(pg, null, a.x, a.y); return; }
     pushUndo(pg, snapshot(pg));
     const nm = k === "box" ? { id: uid(), k, x: a.x - BOX / 2, y: a.y - BOX / 2, done: false, ts: Date.now() }
       : { id: uid(), k, x: a.x, y: a.y, done: false, ts: Date.now() };
@@ -357,6 +422,7 @@ function endPointer(e) {
     const snap = snapshot(pg); pg.strokes.push(s); pushUndo(pg, snap);
     if (pg.marks.some(m => m.done && m.k === "box")) drawInk(); else drawStroke(xI, s);
     if (s.t === "p") rememberColor("pen", s.c);
+    rememberWidth(s.t === "h" ? "hi" : "pen", s.w);
     touchPage(pg);
   }
 }
@@ -476,6 +542,7 @@ function rememberColor(kind, c) {
 function renderColors() {
   const k = colorKind(), cur = k === "hi" ? S.set.hiColor : S.set.penColor, rec = k === "hi" ? S.set.recentHi : S.set.recentPen;
   $("curColor").querySelector("span").style.background = cur;
+  if ($("favW")) renderWidthUI();
   $("curColor").title = (k === "hi" ? "Kiemelő" : "Toll") + " színe – koppints a keverőhöz";
   const box = $("recent"); box.textContent = "";
   rec.slice(0, 3).forEach(c => { const b = document.createElement("button"); b.className = "swatch"; b.title = "Előző szín " + c; b.setAttribute("aria-label", "Előző szín " + c);
@@ -494,11 +561,46 @@ function openToolPop(anchor) {
     $("colorInput").value = k === "hi" ? S.set.hiColor : S.set.penColor;
     $("widthInput").value = k === "hi" ? S.set.hiW : S.set.penW; showWidth();
   } else { markErMode(); $("erSize").value = S.set.erR; $("erOut").textContent = mmTxt(S.set.erR * 2); }
-  pop.hidden = false; positionPop(pop, anchor);
+  pop.hidden = false; renderWidthUI(); positionPop(pop, anchor);
 }
 const mmTxt = u => (u / MM).toFixed(u / MM < 1 ? 2 : 1).replace(".", ",") + " mm";
-function showWidth() { const k = S.tool === "hi" ? "hi" : "pen", w = +$("widthInput").value; $("widthOut").textContent = mmTxt(k === "hi" ? w * 6 : w * .95); }
-$("widthInput").addEventListener("input", () => { const k = S.tool === "hi" ? "hiW" : "penW"; S.set[k] = +$("widthInput").value; showWidth(); saveSettings(); });
+/* Vastagság: mm-ben is beírható, utolsó 3 megjegyezve, 1 kedvenc */
+const wKind = () => S.tool === "hi" ? "hi" : "pen";
+const mmOfW = (k, w) => k === "hi" ? w * 6 / MM : w * .95 / MM;
+const wOfMm = (k, mm) => k === "hi" ? mm * MM / 6 : mm * MM / .95;
+const fmtMm = v => v.toFixed(2).replace(/0$/, "").replace(".", ",") + " mm";
+const sameW = (a, b) => a != null && b != null && Math.abs(a - b) < .01;
+function curW(k) { return S.set[k === "hi" ? "hiW" : "penW"]; }
+function setWidth(k, w) { S.set[k === "hi" ? "hiW" : "penW"] = Math.max(.2, Math.min(40, w)); saveSettings(); renderWidthUI(); }
+function rememberWidth(k, w) {
+  if (!S.set.recentW) S.set.recentW = { pen: [], hi: [] };
+  const r = S.set.recentW[k] || []; if (sameW(r[0], w)) return;
+  S.set.recentW[k] = [w, ...r.filter(x => !sameW(x, w))].slice(0, 3); saveSettings(); renderWidthUI();
+}
+function showWidth() { renderWidthUI(); }
+function renderWidthUI() {
+  const k = wKind(), w = curW(k), fav = (S.set.favW || {})[k];
+  if (!$("toolPop").hidden && !$("popWidthRow").hidden) {
+    $("widthInput").value = Math.min(+$("widthInput").max, w);
+    if (document.activeElement !== $("widthMm")) $("widthMm").value = mmOfW(k, w).toFixed(2).replace(".", ",");
+    const box = $("wChips"); box.textContent = "";
+    const chip = (val, star) => { const b = document.createElement("button"); b.className = "tb small chip"; b.textContent = (star ? "★ " : "") + fmtMm(mmOfW(k, val));
+      b.setAttribute("aria-pressed", String(sameW(val, w))); b.onclick = () => setWidth(k, val); box.append(b); };
+    if (fav != null) chip(fav, true);
+    ((S.set.recentW || {})[k] || []).filter(x => !sameW(x, fav)).slice(0, 3).forEach(v => chip(v, false));
+    $("wFav").textContent = sameW(fav, w) ? "★ Ez a kedvenc" : "☆ Legyen kedvenc";
+  }
+  const fb = $("favW"), show = (S.tool === "pen" || S.tool === "hi") && fav != null;
+  fb.hidden = !show;
+  if (show) { fb.querySelector("span").textContent = fmtMm(mmOfW(k, fav)).replace(" mm", ""); fb.setAttribute("aria-pressed", String(sameW(fav, w)));
+    fb.title = "Kedvenc vastagság: " + fmtMm(mmOfW(k, fav)); }
+}
+$("widthInput").addEventListener("input", () => setWidth(wKind(), +$("widthInput").value));
+$("widthMm").addEventListener("change", () => { const v = parseFloat(String($("widthMm").value).replace(",", "."));
+  if (!(v > 0)) { renderWidthUI(); return; } setWidth(wKind(), wOfMm(wKind(), v)); $("widthMm").value = mmOfW(wKind(), curW(wKind())).toFixed(2).replace(".", ","); });
+$("wFav").onclick = () => { const k = wKind(); if (!S.set.favW) S.set.favW = { pen: null, hi: null };
+  S.set.favW[k] = sameW(S.set.favW[k], curW(k)) ? null : curW(k); saveSettings(); renderWidthUI(); };
+$("favW").onclick = () => { const k = wKind(), f = (S.set.favW || {})[k]; if (f != null) { setWidth(k, f); toast("Kedvenc vastagság: " + fmtMm(mmOfW(k, f))); } };
 $("colorInput").addEventListener("change", () => { rememberColor(S.tool === "hi" ? "hi" : "pen", $("colorInput").value); });
 function markErMode() { $("erStroke").setAttribute("aria-pressed", String(S.set.erMode === "stroke")); $("erPart").setAttribute("aria-pressed", String(S.set.erMode === "part")); }
 $("erStroke").onclick = () => { S.set.erMode = "stroke"; markErMode(); saveSettings(); };
@@ -660,6 +762,8 @@ function itemRegion(pg, m) {
     return [Math.max(0, m.x - 3 * MM), Math.max(0, m.y - 4 * MM), x1, Math.min(H, m.y + BOX + 4 * MM)]; }
   const cand = pg.strokes.filter(s => s.t === "p" && s.bb[0] > m.x && Math.abs((s.bb[1] + s.bb[3]) / 2 - m.y) < QR * 2.4).sort((a, b) => a.bb[0] - b.bb[0]);
   let right = m.x + QR; for (const s of cand) { if (s.bb[0] - right > 22 * MM) break; right = Math.max(right, s.bb[2]); }
+  const L = qLayout(m);
+  if (L) return [Math.max(0, Math.min(m.x - QR, L.x) - 3 * MM), Math.max(0, Math.min(m.y - QR, L.y) - 3 * MM), Math.min(W, Math.max(m.x + QR, L.x + L.w) + 3 * MM), Math.min(H, Math.max(m.y + QR, L.y + L.h) + 3 * MM)];
   return [Math.max(0, m.x - QR - 3 * MM), Math.max(0, m.y - QR - 4 * MM), Math.min(W, Math.max(right + 4 * MM, m.x + 60 * MM)), Math.min(H, m.y + QR + 4 * MM)];
 }
 function cropCanvas(pg, r, cssW) {
@@ -940,9 +1044,9 @@ const Sync = {
     const items = [];
     for (const nb of S.notebooks) nb.pages.forEach((id, i) => { const pg = S.pages.get(id); if (!pg) return; const f = this.ids.files[id] || {};
       for (const m of pg.marks) if (!m.done) { const r = itemRegion(pg, m);
-        items.push({ tipus: m.k === "box" ? "feladat" : "kérdés", fuzet: nb.name, lapszam: i + 1, letrehozva: new Date(m.ts).toISOString(),
+        items.push({ tipus: m.k === "box" ? "feladat" : "kérdés", szoveg: m.text || null, fuzet: nb.name, lapszam: i + 1, letrehozva: new Date(m.ts).toISOString(),
           kepFajlId: f.img, kivagas_szazalek: { x0: +(r[0] / W * 100).toFixed(1), y0: +(r[1] / H * 100).toFixed(1), x1: +(r[2] / W * 100).toFixed(1), y1: +(r[3] / H * 100).toFixed(1) } }); } });
-    return { leiras: "Nyitott feladatok és kérdések. A kézírás a lap képén (kepFajlId) a kivagas_szazalek téglalapban olvasható.", frissitve: new Date().toISOString(), tetelek: items };
+    return { leiras: "Nyitott feladatok és kérdések. Ha van szoveg, az a begépelt kérdés; egyébként a kézírás a lap képén (kepFajlId) a kivagas_szazalek téglalapban olvasható.", frissitve: new Date().toISOString(), tetelek: items };
   },
 };
 /* A Google-token óránként lejár; a frissítéshez felhasználói koppintás kell (felugró ablak), ezért eszköztár-koppintáskor frissítünk */
@@ -979,6 +1083,9 @@ function settingsDialog() {
     <p>Engedélyezett JavaScript-forrásnak ezt add meg a Google Cloudban: <code>${esc(location.origin)}</code></p>
     <div class="seg"><button class="btn pri" id="dOn"></button><button class="btn" id="dNow">Szinkronizálás most</button></div>
     <p id="dState"></p>
+    <strong>S Pen gomb teszt</strong>
+    <p>Bekapcsolva a képernyő alján kiírja, mit jelez a toll. Írj a lapra lenyomott oldalsó gombbal, és küldd el a kiírt sort.</p>
+    <div class="seg"><button class="tb small" id="dbgBtn"></button></div>
     <p style="font-size:12px">Verzió: ${APP_VERSION}</p>`;
   const cid = body.querySelector("#cid"); cid.value = S.set.clientId || "";
   const markRail = () => { body.querySelector("#stR").setAttribute("aria-pressed", String(S.set.rail === "right")); body.querySelector("#stL").setAttribute("aria-pressed", String(S.set.rail === "left")); };
@@ -995,7 +1102,10 @@ function settingsDialog() {
     catch (e) { st.textContent = "A bejelentkezés nem sikerült: " + e.message; }
   };
   body.querySelector("#dNow").onclick = () => { Sync.run(true); st.textContent = "Szinkron elindítva…"; };
-  markRail(); markDrive();
+  const dbgBtn = body.querySelector("#dbgBtn");
+  const markDbg = () => { dbgBtn.textContent = penDbg ? "Tolladatok kijelzése: BE" : "Tolladatok kijelzése: KI"; dbgBtn.setAttribute("aria-pressed", String(penDbg)); };
+  dbgBtn.onclick = () => { penDbg = !penDbg; if (!penDbg) $("penDbg").hidden = true; markDbg(); };
+  markRail(); markDrive(); markDbg();
   dialog("Beállítások és szinkron", body, [["Kész", "pri"]]);
 }
 $("mSettings").onclick = settingsDialog;
