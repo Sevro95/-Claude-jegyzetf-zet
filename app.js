@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "2.0.0";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -51,8 +51,8 @@ const DB = {
 
 /* ================= Állapot ================= */
 const DEF_SET = {
-  penColor: INK, penW: 2.6, hiColor: "#f2c200", hiW: 3, erMode: "stroke", erR: 12,
-  recentPen: ["#1f4fd1", "#c62828", "#2e7d32"], recentHi: ["#7fd36b", "#5ec8f0", "#f59ab5"],
+  penColor: "#1F4FA3", penW: 2.6, hiColor: "#F2C200", hiW: 3, erMode: "stroke", erR: 12,
+  recentPen: ["#C2410C", "#1E2227", "#2E7D32"], recentHi: ["#7ED957", "#7CC4FF", "#FF8FC8"],
   recentW: { pen: [], hi: [] }, favW: { pen: null, hi: null },
   rail: "right", lastNb: null, lastPage: {}, clientId: "", driveOn: false,
 };
@@ -483,7 +483,7 @@ function selBounds() {
 }
 function placeSel() {
   const box = $("selBox"), bar = $("selBar");
-  if (!S.sel) { box.hidden = true; bar.hidden = true; return; }
+  if (!S.sel) { box.hidden = true; bar.hidden = true; $("recolor").hidden = true; return; }
   const [a, b, c, d] = S.sel.bb;
   Object.assign(box.style, { left: a * SC + "px", top: b * SC + "px", width: (c - a) * SC + "px", height: (d - b) * SC + "px" });
   box.hidden = false; bar.hidden = false;
@@ -513,58 +513,150 @@ $("sCopy").onclick = () => { const pg = S.page; pushUndo(pg, snapshot(pg)); cons
   for (const s of pg.strokes.filter(s => S.sel.ids.has(s.id))) { const n = bbox({ ...s, id: uid(), ts: now, mt: now, p: s.p.map(q => [q[0] + off, q[1] + off, q[2]]) }); pg.strokes.push(n); ids.add(n.id); }
   for (const m of pg.marks.filter(m => S.sel.mids.has(m.id))) { const n = { ...m, id: uid(), x: m.x + off, y: m.y + off, ts: now, done: false }; delete n.dt; pg.marks.push(n); mids.add(n.id); }
   S.sel = { ids, mids }; selBounds(); placeSel(); drawInk(); touchPage(pg); };
-$("sColor").onclick = () => pickColorDialog("Kijelölés átszínezése", S.set.penColor, "pen", c => {
-  const pg = S.page; pushUndo(pg, snapshot(pg)); const now = Date.now();
-  pg.strokes = pg.strokes.map(s => S.sel.ids.has(s.id) ? { ...s, c, mt: now } : s);
-  rememberColor("pen", c); drawInk(); touchPage(pg); });
+$("sColor").onclick = () => {
+  const rc = $("recolor"); if (!rc.hidden) { rc.hidden = true; return; } rc.textContent = "";
+  const cols = [...new Set([S.set.penColor, ...S.set.recentPen, ...favPens().map(f => f.c), "#1E2227", "#1F4FA3", "#C2410C", "#2E7D32"].map(c => c.toLowerCase()))].slice(0, 8);
+  cols.forEach(c => rc.append(swatch(c, false, "Átszínezés: " + c, () => {
+    const pg = S.page; pushUndo(pg, snapshot(pg)); const now = Date.now();
+    pg.strokes = pg.strokes.map(s => S.sel.ids.has(s.id) && s.t === "p" ? { ...s, c, mt: now } : s);
+    drawInk(); touchPage(pg); rc.hidden = true; })));
+  rc.hidden = false; const br = $("selBar").getBoundingClientRect();
+  rc.style.left = Math.max(8, Math.min(br.left, innerWidth - 310)) + "px"; rc.style.top = (br.bottom + 6) + "px";
+};
+$("sDone").onclick = () => clearSel();
 $("desk").addEventListener("scroll", () => { if (S.sel) placeSel(); }, { passive: true });
 
-/* ================= Eszközök, színek ================= */
+/* ================= Panelek ================= */
+const PANELS = ["pPen", "pHi", "pEr", "drawer", "fileMenu", "tasks"];
+const PANEL_BTN = { drawer: "bNbs", fileMenu: "bFile", tasks: "bTasks" };
+function closePanels(except) {
+  for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
+}
+const closePops = closePanels;
+function openPanel(id) {
+  const el = $(id), wasOpen = !el.hidden;
+  closePanels(); if (wasOpen) return false;
+  el.hidden = false; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "true");
+  if (id === "fileMenu") { const r = $("bFile").getBoundingClientRect(), w = el.offsetWidth; el.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px"; }
+  return true;
+}
+document.addEventListener("pointerdown", e => {
+  if (e.target.closest(".sky, #pill, #pal, .dlg, .selbar, .recolor")) return;
+  closePanels();
+}, true);
+
+/* ================= Eszközök ================= */
+const TOOL_PANEL = { pen: "pPen", hi: "pHi", er: "pEr" };
 function setTool(t) {
   if (t !== "lasso") clearSel();
   S.tool = t;
-  document.querySelectorAll(".tool").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
-  renderColors();
+  document.querySelectorAll(".tool[data-tool]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
+  renderPalette();
 }
-document.querySelectorAll(".tool").forEach(b => b.addEventListener("click", () => {
+document.querySelectorAll(".tool[data-tool]").forEach(b => b.addEventListener("click", () => {
   const t = b.dataset.tool;
-  if (S.tool === t && (t === "pen" || t === "hi" || t === "er")) { openToolPop(b); return; }
-  setTool(t); closePops();
+  if (S.tool === t && TOOL_PANEL[t]) { if (openPanel(TOOL_PANEL[t])) renderPanel(TOOL_PANEL[t]); return; }
+  setTool(t); closePanels();
 }));
+$("bFavPens").onclick = () => { if (S.tool !== "pen") setTool("pen"); if (openPanel("pPen")) renderPanel("pPen"); };
+$("bMix").onclick = () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); const id = S.tool === "hi" ? "pHi" : "pPen"; if (openPanel(id)) renderPanel(id); };
+function renderPanel(id) {
+  if (id === "pPen") {
+    renderFavPens(); syncPicker();
+    const box = $("penRecent"); box.textContent = "";
+    S.set.recentPen.slice(0, 3).forEach(c => box.append(swatch(c, false, "Előző szín " + c, () => rememberColor("pen", c))));
+    renderWidthFor("pen");
+  } else if (id === "pHi") {
+    const box = $("hiColors"); box.textContent = "";
+    const cols = [...new Set([...HI_PRESETS, ...S.set.recentHi, S.set.hiColor].map(c => c.toLowerCase()))].slice(0, 7);
+    cols.forEach(c => box.append(swatch(c, c === S.set.hiColor.toLowerCase(), "Kiemelő színe " + c, () => rememberColor("hi", c))));
+    $("hiHex").textContent = S.set.hiColor.toUpperCase();
+    renderWidthFor("hi");
+  } else if (id === "pEr") { markErMode(); $("erSize").value = S.set.erR; $("erOut").textContent = mmTxt(S.set.erR * 2); }
+}
+function swatch(c, pressed, label, fn) {
+  const b = document.createElement("button"); b.className = "sw"; b.style.background = c; b.setAttribute("aria-label", label); b.setAttribute("aria-pressed", String(!!pressed)); b.onclick = fn; return b;
+}
+
+/* ================= Színek ================= */
+const HI_PRESETS = ["#F2C200", "#7ED957", "#FF8FC8", "#7CC4FF"];
 function colorKind() { return S.tool === "hi" ? "hi" : "pen"; }
 function rememberColor(kind, c) {
   const key = kind === "hi" ? "recentHi" : "recentPen", curKey = kind === "hi" ? "hiColor" : "penColor";
   const prev = S.set[curKey];
   if (prev && prev.toLowerCase() !== c.toLowerCase()) S.set[key] = [prev, ...S.set[key].filter(x => x.toLowerCase() !== prev.toLowerCase() && x.toLowerCase() !== c.toLowerCase())].slice(0, 3);
   else S.set[key] = S.set[key].filter(x => x.toLowerCase() !== c.toLowerCase()).slice(0, 3);
-  S.set[curKey] = c; saveSettings(); renderColors();
+  S.set[curKey] = c; saveSettings(); renderPalette();
+  if (!$("pPen").hidden && !pickDrag) renderPanel("pPen");
+  if (!$("pHi").hidden) renderPanel("pHi");
 }
-function renderColors() {
+/* paletta: aktuális szín + az előző 3 */
+function renderPalette() {
   const k = colorKind(), cur = k === "hi" ? S.set.hiColor : S.set.penColor, rec = k === "hi" ? S.set.recentHi : S.set.recentPen;
-  $("curColor").querySelector("span").style.background = cur;
-  if ($("favW")) renderWidthUI();
-  $("curColor").title = (k === "hi" ? "Kiemelő" : "Toll") + " színe – koppints a keverőhöz";
   const box = $("recent"); box.textContent = "";
-  rec.slice(0, 3).forEach(c => { const b = document.createElement("button"); b.className = "swatch"; b.title = "Előző szín " + c; b.setAttribute("aria-label", "Előző szín " + c);
-    const sp = document.createElement("span"); sp.style.background = c; b.append(sp);
-    b.onclick = () => { rememberColor(k, c); if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); };
-    box.append(b); });
+  box.append(swatch(cur, true, "Aktuális szín " + cur, () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); else $("bMix").click(); }));
+  rec.filter(c => c.toLowerCase() !== cur.toLowerCase()).slice(0, 3).forEach(c =>
+    box.append(swatch(c, false, "Előző szín " + c, () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); rememberColor(colorKind(), c); })));
+  renderFavW();
 }
-$("curColor").onclick = () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); openToolPop($("curColor")); };
+function hexToRgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.split("").map(c => c + c).join(""); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgbToHex(r, g, b) { return "#" + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, "0")).join(""); }
+function rgbToHsv(r, g, b) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = 0;
+  if (d) { if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  return [h, mx ? d / mx : 0, mx]; }
+function hsvToRgb(h, s, v) { const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c; let r, g, b;
+  if (h < 60) [r, g, b] = [c, x, 0]; else if (h < 120) [r, g, b] = [x, c, 0]; else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c]; else if (h < 300) [r, g, b] = [x, 0, c]; else [r, g, b] = [c, 0, x];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255]; }
+let hsv = [220, .8, .64], pickDrag = null;
+function syncPicker() { hsv = rgbToHsv(...hexToRgb(S.set.penColor)); drawPicker(); }
+function drawPicker() {
+  $("sv").style.background = `linear-gradient(0deg,#000,transparent),linear-gradient(90deg,#fff,hsl(${hsv[0]},100%,50%))`;
+  $("svK").style.left = (hsv[1] * 100) + "%"; $("svK").style.top = ((1 - hsv[2]) * 100) + "%";
+  $("hueK").style.left = (hsv[0] / 360 * 100) + "%"; $("penHex").textContent = S.set.penColor.toUpperCase();
+}
+function livePick() { S.set.penColor = rgbToHex(...hsvToRgb(hsv[0] % 360, hsv[1], hsv[2])); drawPicker(); renderPalette(); drawPenPreview(); }
+for (const [id, fn] of [["sv", (x, y) => { hsv[1] = x; hsv[2] = 1 - y; }], ["hue", x => { hsv[0] = Math.min(359.9, x * 360); }]]) {
+  const el = $(id);
+  const at = e => { const r = el.getBoundingClientRect(); fn(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))); };
+  el.addEventListener("pointerdown", e => { e.preventDefault(); if (S.tool !== "pen") setTool("pen"); pickDrag = { id, start: S.set.penColor }; try { el.setPointerCapture(e.pointerId); } catch (_) {} at(e); livePick(); });
+  el.addEventListener("pointermove", e => { if (!pickDrag || pickDrag.id !== id) return; at(e); livePick(); });
+  const end = () => { if (!pickDrag || pickDrag.id !== id) return; const prev = pickDrag.start, c = S.set.penColor; pickDrag = null; S.set.penColor = prev; rememberColor("pen", c); };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
 
-function openToolPop(anchor) {
-  closePops();
-  const pop = $("toolPop"), t = S.tool, isEr = t === "er";
-  $("popColorRow").hidden = isEr; $("popWidthRow").hidden = isEr; $("popEraseRow").hidden = !isEr; $("popEraseSize").hidden = !isEr;
-  if (!isEr) {
-    const k = t === "hi" ? "hi" : "pen";
-    $("colorInput").value = k === "hi" ? S.set.hiColor : S.set.penColor;
-    $("widthInput").value = k === "hi" ? S.set.hiW : S.set.penW; showWidth();
-  } else { markErMode(); $("erSize").value = S.set.erR; $("erOut").textContent = mmTxt(S.set.erR * 2); }
-  pop.hidden = false; renderWidthUI(); positionPop(pop, anchor);
+/* ================= Kedvenc tollak ================= */
+const DEF_FAV = [{ n: "Jegyzet", c: "#1F4FA3", mm: .6 }, { n: "Megjegyzés", c: "#C2410C", mm: 1 }, { n: "Vázlat", c: "#1E2227", mm: .35 }];
+function favPens() { if (!Array.isArray(S.set.favPens)) S.set.favPens = DEF_FAV.map(f => ({ n: f.n, c: f.c, w: wOfMm("pen", f.mm) })); return S.set.favPens; }
+function renderFavPens() {
+  const box = $("favList"), list = favPens(); box.textContent = "";
+  list.forEach((f, i) => {
+    const row = document.createElement("div"); row.className = "fav";
+    const b = document.createElement("button"); b.className = "use";
+    b.setAttribute("aria-pressed", String(S.set.penColor.toLowerCase() === f.c.toLowerCase() && sameW(S.set.penW, f.w)));
+    const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), path = document.createElementNS(ns, "path");
+    svg.setAttribute("viewBox", "0 0 40 12"); svg.setAttribute("aria-hidden", "true");
+    path.setAttribute("d", "M2 8c8-6 14 2 22-2s10-2 14 0"); path.setAttribute("stroke", f.c); path.setAttribute("stroke-width", String(Math.max(1, Math.min(5, mmOfW("pen", f.w) * 3))));
+    svg.append(path);
+    const nm = document.createElement("span"); nm.textContent = f.n;
+    const mm = document.createElement("span"); mm.className = "mm"; mm.textContent = fmtMm(mmOfW("pen", f.w));
+    b.append(svg, nm, mm);
+    b.onclick = () => { if (S.tool !== "pen") setTool("pen"); setWidth("pen", f.w); rememberColor("pen", f.c); renderPanel("pPen"); };
+    const d = document.createElement("button"); d.className = "del"; d.setAttribute("aria-label", "Kedvenc törlése: " + f.n);
+    d.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    d.onclick = () => { list.splice(i, 1); saveSettings(); renderFavPens(); };
+    row.append(b, d); box.append(row);
+  });
+  $("favAdd").hidden = list.length >= 6 || !$("favSave").hidden;
 }
+$("favAdd").onclick = () => { $("favSave").hidden = false; $("favAdd").hidden = true; $("favName").value = ""; $("favName").focus(); };
+const saveFav = () => { const n = $("favName").value.trim() || "Toll " + (favPens().length + 1);
+  favPens().push({ n, c: S.set.penColor, w: S.set.penW }); saveSettings(); $("favSave").hidden = true; renderFavPens(); toast("Kedvenc mentve: " + n); };
+$("favOk").onclick = saveFav;
+$("favName").addEventListener("keydown", e => { if (e.key === "Enter") saveFav(); else if (e.key === "Escape") { $("favSave").hidden = true; renderFavPens(); } });
+
+/* ================= Vastagság: mm-ben is beírható, utolsó 3 megjegyezve, 1 kedvenc ================= */
 const mmTxt = u => (u / MM).toFixed(u / MM < 1 ? 2 : 1).replace(".", ",") + " mm";
-/* Vastagság: mm-ben is beírható, utolsó 3 megjegyezve, 1 kedvenc */
 const wKind = () => S.tool === "hi" ? "hi" : "pen";
 const mmOfW = (k, w) => k === "hi" ? w * 6 / MM : w * .95 / MM;
 const wOfMm = (k, mm) => k === "hi" ? mm * MM / 6 : mm * MM / .95;
@@ -577,49 +669,47 @@ function rememberWidth(k, w) {
   const r = S.set.recentW[k] || []; if (sameW(r[0], w)) return;
   S.set.recentW[k] = [w, ...r.filter(x => !sameW(x, w))].slice(0, 3); saveSettings(); renderWidthUI();
 }
-function showWidth() { renderWidthUI(); }
-function renderWidthUI() {
-  const k = wKind(), w = curW(k), fav = (S.set.favW || {})[k];
-  if (!$("toolPop").hidden && !$("popWidthRow").hidden) {
-    $("widthInput").value = Math.min(+$("widthInput").max, w);
-    if (document.activeElement !== $("widthMm")) $("widthMm").value = mmOfW(k, w).toFixed(2).replace(".", ",");
-    const box = $("wChips"); box.textContent = "";
-    const chip = (val, star) => { const b = document.createElement("button"); b.className = "tb small chip"; b.textContent = (star ? "★ " : "") + fmtMm(mmOfW(k, val));
-      b.setAttribute("aria-pressed", String(sameW(val, w))); b.onclick = () => setWidth(k, val); box.append(b); };
-    if (fav != null) chip(fav, true);
-    ((S.set.recentW || {})[k] || []).filter(x => !sameW(x, fav)).slice(0, 3).forEach(v => chip(v, false));
-    $("wFav").textContent = sameW(fav, w) ? "★ Ez a kedvenc" : "☆ Legyen kedvenc";
-  }
-  const fb = $("favW"), show = (S.tool === "pen" || S.tool === "hi") && fav != null;
-  fb.hidden = !show;
-  if (show) { fb.querySelector("span").textContent = fmtMm(mmOfW(k, fav)).replace(" mm", ""); fb.setAttribute("aria-pressed", String(sameW(fav, w)));
-    fb.title = "Kedvenc vastagság: " + fmtMm(mmOfW(k, fav)); }
+const WUI = { pen: { r: "penW", m: "penMm", c: "penChips", f: "penFav" }, hi: { r: "hiW", m: "hiMm", c: "hiChips", f: "hiFav" } };
+function renderWidthFor(k) {
+  const u = WUI[k], w = curW(k), fav = (S.set.favW || {})[k];
+  $(u.r).value = Math.min(+$(u.r).max, Math.max(+$(u.r).min, w));
+  if (document.activeElement !== $(u.m)) $(u.m).value = mmOfW(k, w).toFixed(2).replace(".", ",");
+  const box = $(u.c); box.textContent = "";
+  const chip = (v, star) => { const b = document.createElement("button"); b.textContent = (star ? "★ " : "") + fmtMm(mmOfW(k, v));
+    b.setAttribute("aria-pressed", String(sameW(v, w))); b.onclick = () => setWidth(k, v); box.append(b); };
+  if (fav != null) chip(fav, true);
+  ((S.set.recentW || {})[k] || []).filter(x => !sameW(x, fav)).slice(0, 3).forEach(v => chip(v, false));
+  $(u.f).textContent = sameW(fav, w) ? "★ Ez a kedvenc (koppints a törléshez)" : (k === "hi" ? "☆ Legyen kedvenc szélesség" : "☆ Legyen kedvenc vastagság");
+  if (k === "pen") drawPenPreview();
 }
-$("widthInput").addEventListener("input", () => setWidth(wKind(), +$("widthInput").value));
-$("widthMm").addEventListener("change", () => { const v = parseFloat(String($("widthMm").value).replace(",", "."));
-  if (!(v > 0)) { renderWidthUI(); return; } setWidth(wKind(), wOfMm(wKind(), v)); $("widthMm").value = mmOfW(wKind(), curW(wKind())).toFixed(2).replace(".", ","); });
-$("wFav").onclick = () => { const k = wKind(); if (!S.set.favW) S.set.favW = { pen: null, hi: null };
-  S.set.favW[k] = sameW(S.set.favW[k], curW(k)) ? null : curW(k); saveSettings(); renderWidthUI(); };
-$("favW").onclick = () => { const k = wKind(), f = (S.set.favW || {})[k]; if (f != null) { setWidth(k, f); toast("Kedvenc vastagság: " + fmtMm(mmOfW(k, f))); } };
-$("colorInput").addEventListener("change", () => { rememberColor(S.tool === "hi" ? "hi" : "pen", $("colorInput").value); });
+for (const k of ["pen", "hi"]) {
+  const u = WUI[k];
+  $(u.r).addEventListener("input", () => setWidth(k, +$(u.r).value));
+  $(u.m).addEventListener("change", () => { const v = parseFloat(String($(u.m).value).replace(",", "."));
+    if (v > 0) setWidth(k, wOfMm(k, v)); $(u.m).value = mmOfW(k, curW(k)).toFixed(2).replace(".", ","); });
+  $(u.m).addEventListener("keydown", e => { if (e.key === "Enter") $(u.m).blur(); });
+  $(u.f).onclick = () => { if (!S.set.favW) S.set.favW = { pen: null, hi: null };
+    S.set.favW[k] = sameW(S.set.favW[k], curW(k)) ? null : curW(k); saveSettings(); renderWidthUI(); };
+}
+function renderFavW() {
+  const k = wKind(), fav = (S.set.favW || {})[k], fb = $("favW"), show = (S.tool === "pen" || S.tool === "hi") && fav != null;
+  fb.hidden = !show;
+  if (show) { fb.querySelector("span").textContent = fmtMm(mmOfW(k, fav)).replace(" mm", ""); fb.setAttribute("aria-pressed", String(sameW(fav, curW(k))));
+    fb.title = (k === "hi" ? "Kedvenc szélesség: " : "Kedvenc vastagság: ") + fmtMm(mmOfW(k, fav)); }
+}
+$("favW").onclick = () => { const k = wKind(), f = (S.set.favW || {})[k]; if (f != null) { setWidth(k, f); toast("Kedvenc: " + fmtMm(mmOfW(k, f))); } };
+function renderWidthUI() { renderFavW(); if (!$("pPen").hidden) renderWidthFor("pen"); if (!$("pHi").hidden) renderWidthFor("hi"); }
+function drawPenPreview() {
+  const c = $("penPrev"), x = c.getContext("2d"); x.clearRect(0, 0, c.width, c.height);
+  x.strokeStyle = S.set.penColor; x.lineCap = "round"; x.lineWidth = Math.max(1, mmOfW("pen", S.set.penW) * 8);
+  x.beginPath(); x.moveTo(12, 32); x.bezierCurveTo(80, 0, 140, 46, 220, 24); x.bezierCurveTo(300, 4, 360, 40, 428, 16); x.stroke();
+}
+
+/* ================= Radír ================= */
 function markErMode() { $("erStroke").setAttribute("aria-pressed", String(S.set.erMode === "stroke")); $("erPart").setAttribute("aria-pressed", String(S.set.erMode === "part")); }
 $("erStroke").onclick = () => { S.set.erMode = "stroke"; markErMode(); saveSettings(); };
 $("erPart").onclick = () => { S.set.erMode = "part"; markErMode(); saveSettings(); };
 $("erSize").addEventListener("input", () => { S.set.erR = +$("erSize").value; $("erOut").textContent = mmTxt(S.set.erR * 2); saveSettings(); });
-
-function positionPop(pop, anchor) {
-  const r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
-  let left = S.set.rail === "right" && anchor.closest(".rail") ? r.left - pr.width - 10 : r.left;
-  if (anchor.closest(".rail") && S.set.rail === "left") left = r.right + 10;
-  if (!anchor.closest(".rail")) left = r.right - pr.width;
-  left = Math.max(12, Math.min(left, vw - pr.width - 12));
-  let top = anchor.closest(".rail") ? r.top : r.bottom + 6; top = Math.max(12, Math.min(top, vh - pr.height - 12));
-  pop.style.left = left + "px"; pop.style.top = top + "px";
-}
-function closePops() { $("toolPop").hidden = true; $("morePop").hidden = true; }
-document.addEventListener("pointerdown", e => {
-  if (!e.target.closest(".pop") && !e.target.closest(".tool") && !e.target.closest("#curColor") && !e.target.closest("#bMore")) closePops();
-}, true);
 
 /* ================= Füzetek és lapok ================= */
 async function openNotebook(id, pageId) {
@@ -639,7 +729,7 @@ async function openPage(id) {
   clearSel(); S.page = pg; S.set.lastPage[pg.nb] = id; saveSettings();
   await ensureBg(pg);
   const n = pageNoOf(pg), tot = S.nb.pages.length;
-  $("pageNo").textContent = n; $("bPrev").disabled = n <= 1; $("bNext").disabled = n >= tot;
+  $("bPrev").disabled = n <= 1; $("bNext").disabled = n >= tot;
   drawPaper(); drawInk(); updUR(); renderPageList(); updateOpenBadge();
   $("desk").scrollTop = 0;
 }
@@ -655,9 +745,9 @@ async function addPage(after, opts) {
   Sync.schedule(8000);
   return pg;
 }
-$("bAddPage").onclick = async () => { const pg = await addPage(false); await openPage(pg.id); toast("Új lap: " + pageNoOf(pg) + "."); };
-$("mInsert").onclick = async () => { closePops(); const pg = await addPage(true); await openPage(pg.id); toast("Beszúrva: " + pageNoOf(pg) + ". lap"); };
-$("mDelPage").onclick = () => { closePops(); const pg = S.page, n = pageNoOf(pg);
+$("bAdd").onclick = async () => { const pg = await addPage(false); await openPage(pg.id); toast("Új lap: " + pageNoOf(pg) + "."); };
+$("pgInsert").onclick = async () => { closePops(); const pg = await addPage(true); await openPage(pg.id); toast("Beszúrva: " + pageNoOf(pg) + ". lap"); };
+$("pgDel").onclick = () => { closePops(); const pg = S.page, n = pageNoOf(pg);
   dialog("Lap törlése", `<p>A(z) ${n}. lap minden tartalma törlődik, a Drive-ról is. Ez nem vonható vissza.</p>`,
     [["Mégse"], ["Törlés", "dan", async () => {
       const nb = S.nb, i = nb.pages.indexOf(pg.id); nb.pages.splice(i, 1); nb.updated = Date.now();
@@ -667,42 +757,51 @@ $("mDelPage").onclick = () => { closePops(); const pg = S.page, n = pageNoOf(pg)
       await openPage(nb.pages[Math.max(0, i - 1)]); toast("Lap törölve"); Sync.schedule(3000);
     }]]); };
 
+const relDate = ts => new Date(ts).toDateString() === new Date().toDateString() ? "utoljára ma" : fmtDate(ts);
+function nbOpenCount(nb) { let n = 0; for (const id of nb.pages) { const pg = S.pages.get(id); if (pg) n += openCountOf(pg); } return n; }
+function nbLast(nb) { let t = nb.updated || nb.created; for (const id of nb.pages) { const pg = S.pages.get(id); if (pg && pg.updated > t) t = pg.updated; } return t; }
 function renderNbList() {
-  const ul = $("nbList"); ul.textContent = "";
-  for (const nb of S.notebooks) {
-    const li = document.createElement("li"), b = document.createElement("button"); b.className = "it tb";
-    b.setAttribute("aria-current", String(S.nb && nb.id === S.nb.id));
-    const d = document.createElement("i"); d.className = "dot"; d.style.background = nb.color;
-    const t = document.createElement("span"); t.className = "t"; t.textContent = nb.name;
-    const n = document.createElement("span"); n.className = "sub"; n.textContent = nb.pages.length + " lap";
-    b.append(d, t, n); b.onclick = () => { openNotebook(nb.id); if (innerWidth <= 720) $("drawer").hidden = true; };
-    const e = document.createElement("button"); e.className = "ib"; e.title = "Füzet szerkesztése"; e.setAttribute("aria-label", "Füzet szerkesztése: " + nb.name);
+  const box = $("nbList"), q = $("nbSearch").value.trim().toLowerCase(); box.textContent = "";
+  $("nbCount").textContent = S.notebooks.length + " füzet";
+  const list = S.notebooks.filter(n => !q || n.name.toLowerCase().includes(q));
+  for (const nb of list) {
+    const row = document.createElement("div"); row.className = "nb";
+    const b = document.createElement("button"); b.className = "open"; b.setAttribute("aria-current", String(!!S.nb && nb.id === S.nb.id));
+    const sp = document.createElement("span"); sp.className = "spine"; sp.style.background = nb.color;
+    const meta = document.createElement("span"); meta.className = "meta";
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = nb.name;
+    const sub = document.createElement("span"); sub.className = "sub"; sub.textContent = nb.pages.length + " lap · " + relDate(nbLast(nb));
+    meta.append(nm, sub); b.append(sp, meta);
+    const oc = nbOpenCount(nb); if (oc) { const bd = document.createElement("span"); bd.className = "badge"; bd.textContent = oc; b.append(bd); }
+    b.onclick = async () => { await openNotebook(nb.id); renderNbList(); renderPageList(); };
+    const e = document.createElement("button"); e.className = "edit"; e.setAttribute("aria-label", "Füzet szerkesztése: " + nb.name);
     e.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg>'; e.onclick = () => notebookDialog(nb);
-    li.append(b, e); ul.append(li);
+    row.append(b, e); box.append(row);
   }
+  if (!list.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = "Nincs ilyen nevű füzet."; box.append(p); }
 }
 function openCountOf(pg) { return pg.marks.filter(m => !m.done).length; }
 function renderPageList() {
-  const ul = $("pgList"); if (!S.nb) return; ul.textContent = "";
+  const box = $("pgList"); if (!S.nb || $("drawer").hidden) return; box.textContent = "";
   S.nb.pages.forEach((id, i) => {
     const pg = S.pages.get(id); if (!pg) return;
-    const li = document.createElement("li"), b = document.createElement("button"); b.className = "it tb";
-    b.setAttribute("aria-current", String(S.page && S.page.id === id));
-    const no = document.createElement("span"); no.className = "sub"; no.textContent = String(i + 1).padStart(2, "0");
-    const t = document.createElement("span"); t.className = "t"; t.textContent = fmtDate(pg.created) + (pg.bg ? " · import" : "");
+    const b = document.createElement("button"); b.className = "pg"; b.setAttribute("aria-current", String(!!S.page && S.page.id === id));
+    const no = document.createElement("span"); no.className = "no"; no.textContent = i + 1;
+    const t = document.createElement("span"); t.textContent = fmtDate(pg.created) + (pg.bg ? " · import" : "");
     b.append(no, t);
-    const oc = openCountOf(pg); if (oc) { const bd = document.createElement("b"); bd.className = "badge"; bd.textContent = oc; b.append(bd); }
-    b.onclick = () => { openPage(id); if (innerWidth <= 720) $("drawer").hidden = true; };
-    li.append(b); ul.append(li);
+    const oc = openCountOf(pg); if (oc) { const bd = document.createElement("span"); bd.className = "badge"; bd.textContent = oc; b.append(bd); }
+    b.onclick = () => openPage(id);
+    box.append(b);
   });
 }
 function updateOpenBadge() {
   if (!S.nb) return; let n = 0;
   for (const id of S.nb.pages) { const pg = S.pages.get(id); if (pg) n += openCountOf(pg); }
-  const b = $("openCount"); b.textContent = n; b.hidden = !n;
+  const b = $("badge"); b.textContent = n; if (n) delete b.dataset.zero; else b.dataset.zero = "";
 }
-$("bNav").onclick = () => { $("drawer").hidden = !$("drawer").hidden; layout(); };
-$("bNewNb").onclick = () => notebookDialog(null);
+$("bNbs").onclick = () => { if (openPanel("drawer")) { $("nbSearch").value = ""; renderNbList(); renderPageList(); } };
+$("nbSearch").addEventListener("input", renderNbList);
+$("nbNew").onclick = () => notebookDialog(null);
 
 function notebookDialog(nb) {
   const isNew = !nb; let color = nb ? nb.color : NB_COLORS[S.notebooks.length % NB_COLORS.length];
@@ -739,24 +838,18 @@ function deleteNotebookDialog(nb) {
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const PAPERS = [["grid", "Kockás 5 mm"], ["mm", "Milliméterpapír"], ["lined", "Vonalas"], ["dots", "Pontrács"], ["blank", "Üres"]];
 const paperOpts = sel => PAPERS.map(([v, n]) => `<option value="${v}"${v === sel ? " selected" : ""}>${n}</option>`).join("");
-$("mPaper").onclick = () => { closePops(); const pg = S.page;
-  const body = document.createElement("div"); body.className = "dlgbody";
-  body.innerHTML = `<label for="pp">Ennek a lapnak az alapja</label><select id="pp">${paperOpts(pg.paper)}</select>
-    <label><input type="checkbox" id="ppDef"> Legyen a füzet új lapjainak alapja is</label>`;
-  dialog("Lap alapja", body, [["Mégse"], ["Alkalmaz", "pri", () => {
-    pg.paper = body.querySelector("#pp").value; drawPaper(); touchPage(pg);
-    if (body.querySelector("#ppDef").checked) { S.nb.paper = pg.paper; S.nb.updated = Date.now(); saveNotebooks(); }
-  }]]); };
+$("bFile").onclick = () => { if (openPanel("fileMenu")) { $("paper").innerHTML = paperOpts(S.page.paper); Sync.status(); } };
+$("paper").onchange = () => { const pg = S.page; pg.paper = $("paper").value; drawPaper(); touchPage(pg); };
 
 /* ================= Feladatok és kérdések ================= */
-let tkKind = "box", tkScope = "this";
+let tkKind = "box", tkDone = false;
 function markSeg() { $("tkTasks").setAttribute("aria-pressed", String(tkKind === "box")); $("tkQs").setAttribute("aria-pressed", String(tkKind === "q"));
-  $("tkThis").setAttribute("aria-pressed", String(tkScope === "this")); $("tkAll").setAttribute("aria-pressed", String(tkScope === "all")); }
-$("bTasks").onclick = () => { $("taskPanel").hidden = false; markSeg(); renderTasks(); };
-$("tkClose").onclick = () => { $("taskPanel").hidden = true; };
-$("taskPanel").addEventListener("click", e => { if (e.target === $("taskPanel")) $("taskPanel").hidden = true; });
+  $("fOpen").setAttribute("aria-pressed", String(!tkDone)); $("fDone").setAttribute("aria-pressed", String(tkDone)); }
+$("bTasks").onclick = () => { if (openPanel("tasks")) { markSeg(); renderTasks(); } };
+$("taskClose").onclick = () => closePanels();
 $("tkTasks").onclick = () => { tkKind = "box"; markSeg(); renderTasks(); }; $("tkQs").onclick = () => { tkKind = "q"; markSeg(); renderTasks(); };
-$("tkThis").onclick = () => { tkScope = "this"; markSeg(); renderTasks(); }; $("tkAll").onclick = () => { tkScope = "all"; markSeg(); renderTasks(); };
+$("fOpen").onclick = () => { tkDone = false; markSeg(); renderTasks(); }; $("fDone").onclick = () => { tkDone = true; markSeg(); renderTasks(); };
+$("tkAll").onchange = () => renderTasks();
 function itemRegion(pg, m) {
   if (m.k === "box") { const st = strikeFor({ ...pg, marks: [] }, m); const x1 = Math.min(W, st ? st[2] + 4 * MM : m.x + 120 * MM);
     return [Math.max(0, m.x - 3 * MM), Math.max(0, m.y - 4 * MM), x1, Math.min(H, m.y + BOX + 4 * MM)]; }
@@ -772,27 +865,33 @@ function cropCanvas(pg, r, cssW) {
   const x = cv.getContext("2d"); x.fillStyle = "#fdfdfb"; x.fillRect(0, 0, cv.width, cv.height);
   x.setTransform(k * dpr, 0, 0, k * dpr, -a * k * dpr, -b * k * dpr); paintInk(x, pg); return cv;
 }
+let tkRender = 0;
 async function renderTasks() {
-  const ul = $("tkList"); ul.textContent = "";
-  const nbs = tkScope === "this" ? [S.nb] : S.notebooks;
-  let count = 0;
+  const token = ++tkRender, ul = $("tkList"), all = $("tkAll").checked, nbs = all ? S.notebooks : [S.nb];
+  for (const nb of nbs) await loadNotebookPages(nb);
+  if (token !== tkRender) return;
+  ul.textContent = ""; let count = 0;
   for (const nb of nbs) {
-    await loadNotebookPages(nb);
     nb.pages.forEach((id, i) => {
       const pg = S.pages.get(id); if (!pg) return;
-      pg.marks.filter(m => m.k === tkKind && !m.done).sort((a, b) => a.y - b.y).forEach(m => {
+      pg.marks.filter(m => m.k === tkKind && !!m.done === tkDone).sort((a, b) => a.y - b.y).forEach(m => {
         count++;
-        const li = document.createElement("li"), b = document.createElement("button");
-        const cv = cropCanvas(pg, itemRegion(pg, m), Math.min(520, innerWidth - 120));
+        const row = document.createElement("div"); row.className = "task"; if (m.done) row.dataset.done = "";
+        const cb = document.createElement("button"); cb.className = "cb" + (m.k === "q" ? " q" : "");
+        cb.setAttribute("aria-label", m.done ? "Újranyitás" : (m.k === "q" ? "Kérdés lezárása" : "Késznek jelölés"));
+        const sp = document.createElement("span"); sp.textContent = m.done ? "✓" : ""; cb.append(sp);
+        cb.onclick = () => { toggleMark(pg, m); renderTasks(); };
+        const go = document.createElement("button"); go.className = "go";
+        const cv = cropCanvas(pg, itemRegion(pg, m), Math.min(320, innerWidth - 120));
         const meta = document.createElement("span"); meta.className = "meta";
-        meta.textContent = (tkScope === "all" ? nb.name + " · " : "") + (i + 1) + ". lap · " + fmtDate(m.ts);
-        b.append(cv, meta);
-        b.onclick = async () => { $("taskPanel").hidden = true; if (S.nb !== nb) await openNotebook(nb.id, id); else await openPage(id); flashAt(m); };
-        li.append(b); ul.append(li);
+        meta.textContent = (all ? nb.name + " · " : "") + (i + 1) + ". lap · " + fmtDate(m.ts);
+        go.append(cv, meta);
+        go.onclick = async () => { closePanels(); if (S.nb !== nb) await openNotebook(nb.id, id); else await openPage(id); flashAt(m); };
+        row.append(cb, go); ul.append(row);
       });
     });
   }
-  if (!count) { const li = document.createElement("li"); li.className = "empty"; li.textContent = tkKind === "box" ? "Nincs nyitott feladat." : "Nincs nyitott kérdés."; ul.append(li); }
+  if (!count) { const p = document.createElement("div"); p.className = "empty"; p.textContent = (tkDone ? "Nincs kész " : "Nincs nyitott ") + (tkKind === "box" ? "feladat." : "kérdés."); ul.append(p); }
 }
 function flashAt(m) {
   const y = (m.k === "box" ? m.y : m.y - QR) * SC; $("desk").scrollTop = Math.max(0, y - 120);
@@ -809,7 +908,15 @@ function loadScript(src) {
     s.onload = res; s.onerror = () => { delete loaded[src]; rej(new Error("Nem tölthető be: " + src)); }; document.head.append(s); });
   return loaded[src];
 }
-$("mImport").onclick = () => { closePops(); $("fileIn").click(); };
+let importMode = "new";
+$("impNew").onclick = () => { importMode = "new"; closePanels(); $("fileIn").multiple = true; $("fileIn").click(); };
+$("impHere").onclick = () => { importMode = "here"; closePanels(); $("fileIn").multiple = false; $("fileIn").click(); };
+async function placeImport(blob, w, h) {
+  if (importMode !== "here") return importBg(blob, w, h);
+  const pg = S.page, bgId = uid(); await DB.put("blobs", blob, bgId);
+  pg.bg = { id: bgId, w, h, type: blob.type || "image/jpeg" }; await ensureBg(pg); drawPaper(); touchPage(pg);
+  return pg;
+}
 $("fileIn").addEventListener("change", async () => {
   const files = [...$("fileIn").files]; $("fileIn").value = ""; if (!files.length) return;
   let made = 0, first = null;
@@ -826,7 +933,8 @@ $("fileIn").addEventListener("change", async () => {
           const cx = c.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
           await p.render({ canvasContext: cx, viewport: vp }).promise;
           const blob = await new Promise(r => c.toBlob(r, "image/jpeg", .86));
-          const pg = await importBg(blob, c.width, c.height); first = first || pg; made++;
+          const pg = await placeImport(blob, c.width, c.height); first = first || pg; made++;
+          if (importMode === "here") break;
         }
       } else if (/^image\/(png|jpeg)$/.test(f.type) || /\.(png|jpe?g)$/i.test(f.name)) {
         busy("Kép betöltése…");
@@ -836,11 +944,12 @@ $("fileIn").addEventListener("change", async () => {
           const cx = c.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height); cx.drawImage(bmp, 0, 0, c.width, c.height);
           blob = await new Promise(r => c.toBlob(r, "image/jpeg", .88)); w = c.width; h = c.height;
         }
-        const pg = await importBg(blob, w, h); first = first || pg; made++;
+        const pg = await placeImport(blob, w, h); first = first || pg; made++;
       } else toast("Nem támogatott fájl: " + f.name);
+      if (importMode === "here" && made) break;
     }
   } catch (e) { console.error(e); unbusy(); toast(navigator.onLine ? "Az importálás nem sikerült: " + e.message : "A PDF-import első használatához internet kell."); return; }
-  unbusy(); if (first) { await openPage(first.id); toast(made + " lap importálva"); }
+  unbusy(); if (first) { await openPage(first.id); toast(importMode === "here" ? "Háttér betöltve erre a lapra" : made + " lap importálva"); }
 });
 async function importBg(blob, w, h) {
   const bgId = uid(); await DB.put("blobs", blob, bgId);
@@ -868,8 +977,8 @@ async function exportPdf(pageIds, name) {
 }
 function downloadBlob(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast("Mentve: " + name); }
 const safeName = s => s.replace(/[\\/:*?"<>|]+/g, "_").trim();
-$("mExportNb").onclick = () => { closePops(); exportPdf(S.nb.pages.slice(), safeName(S.nb.name) + " – " + new Date().toISOString().slice(0, 10) + ".pdf"); };
-$("mExportPg").onclick = () => { closePops(); exportPdf([S.page.id], safeName(S.nb.name) + " – " + pageNoOf(S.page) + ". lap.pdf"); };
+$("expNb").onclick = () => { closePops(); exportPdf(S.nb.pages.slice(), safeName(S.nb.name) + " – " + new Date().toISOString().slice(0, 10) + ".pdf"); };
+$("expPage").onclick = () => { closePops(); exportPdf([S.page.id], safeName(S.nb.name) + " – " + pageNoOf(S.page) + ". lap.pdf"); };
 
 /* ================= Google Drive szinkron ================= */
 const Sync = {
@@ -886,13 +995,15 @@ const Sync = {
   },
   saveIds() { return DB.put("kv", this.ids, "drive"); },
   status(text) {
-    const el = $("sync"); el.classList.remove("warn");
-    if (!S.set.driveOn || !S.set.clientId) { el.textContent = "Csak helyben"; el.title = "Google Drive szinkron nincs beállítva – Beállítások"; return; }
-    if (text) { el.textContent = text; return; }
-    if (!navigator.onLine) { el.textContent = "Offline · helyben mentve"; return; }
-    if (this.needAuth) { el.textContent = "Drive: koppints a bejelentkezéshez"; el.classList.add("warn"); return; }
-    if (this.err) { el.textContent = "Szinkron hiba"; el.title = this.err; el.classList.add("warn"); return; }
-    el.textContent = this.lastOk ? "Drive ✓ " + fmtTime(this.lastOk) : "Drive"; el.title = "Szinkron állapota";
+    const d = $("sdot"), st = $("status"); let k = "", msg;
+    if (!S.set.driveOn || !S.set.clientId) msg = "Csak ezen az eszközön mentve – Drive-szinkron: Beállítások";
+    else if (text) { k = "busy"; msg = text; }
+    else if (!navigator.onLine) { k = "busy"; msg = "Offline – helyben mentve, később szinkronizál"; }
+    else if (this.needAuth) { k = "err"; msg = "Drive: koppints a pöttyre a bejelentkezéshez"; }
+    else if (this.err) { k = "err"; msg = "Szinkron hiba: " + this.err; }
+    else { k = "ok"; msg = this.lastOk ? "Drive-ra mentve · " + fmtTime(this.lastOk) : "Drive-szinkron bekapcsolva"; }
+    if (k) d.dataset.s = k; else delete d.dataset.s;
+    d.title = msg; d.setAttribute("aria-label", "Szinkron: " + msg); st.textContent = msg; this.msg = msg;
   },
   schedule(ms) { if (!S.set.driveOn || !S.set.clientId) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), ms); },
   async gis() { if (!(window.google && google.accounts && google.accounts.oauth2)) await loadScript("https://accounts.google.com/gsi/client"); },
@@ -1053,12 +1164,12 @@ const Sync = {
 let authing = false;
 document.addEventListener("click", e => {
   if (!S.set.driveOn || !S.set.clientId || !navigator.onLine || authing) return;
-  if (!e.target.closest(".top, .rail, .drawer")) return;
+  if (!e.target.closest("#pill, #pal, .sky")) return;
   if (Sync.token && Sync.exp - Date.now() > 5 * 60000) return;
   authing = true;
   Sync.auth(false).then(() => { Sync.needAuth = false; Sync.schedule(500); }).catch(() => { Sync.needAuth = true; Sync.status(); }).finally(() => { authing = false; });
 }, true);
-$("sync").onclick = () => { if (!S.set.driveOn || !S.set.clientId) settingsDialog(); else Sync.run(true); };
+$("sdot").onclick = () => { if (!S.set.driveOn || !S.set.clientId) { settingsDialog(); return; } toast(Sync.msg || "Szinkron…"); Sync.run(true); };
 $("mSummary").onclick = () => {
   closePops();
   if (!S.set.driveOn || !S.set.clientId || !Sync.ids || !Sync.ids.root) {
@@ -1110,7 +1221,7 @@ function settingsDialog() {
 }
 $("mSettings").onclick = settingsDialog;
 function applyRail() { document.body.classList.toggle("rail-left", S.set.rail === "left"); requestAnimationFrame(layout); }
-$("bMore").onclick = () => { const p = $("morePop"); if (!p.hidden) { closePops(); return; } closePops(); p.hidden = false; positionPop(p, $("bMore")); };
+
 
 /* ================= Párbeszéd, értesítés ================= */
 function dialog(title, body, buttons) {
@@ -1154,9 +1265,9 @@ async function start() {
   S.notebooks = (await DB.get("kv", "notebooks")) || [];
   S.deleted = (await DB.get("kv", "deleted")) || { pages: {}, notebooks: {} };
   if (!S.notebooks.length) { S.notebooks.push(newNotebook("Jegyzetek", NB_COLORS[0], "grid")); await saveNotebooks(); }
-  if (innerWidth > 1100) $("drawer").hidden = false;
   applyRail(); setTool("pen"); layout();
   await openNotebook(nbOf(S.set.lastNb) ? S.set.lastNb : S.notebooks[0].id);
+  for (const nb of S.notebooks) loadNotebookPages(nb).then(updateOpenBadge).catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await Sync.init();
   if ("serviceWorker" in navigator) {
