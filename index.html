@@ -72,10 +72,12 @@
   <div id="favSave" class="row" hidden><input id="favName" class="txt grow" placeholder="Név, pl. Méretek" maxlength="24" aria-label="Kedvenc neve"><button id="favOk" class="primary">Mentés</button></div>
   <button id="favAdd" class="ghost">Jelenlegi toll mentése kedvencként</button>
   <div class="hr"></div>
+  <span class="lbl strong">Saját 4 szín</span>
+  <div class="row slots" id="penSlots"></div>
+  <p class="note">Koppints egy színhelyre, majd állítsd be a színét a keverővel vagy színkóddal. A színhely addig marad így, amíg át nem állítod.</p>
   <div id="sv" class="sv"><div id="svK" class="svk"></div></div>
   <div id="hue" class="hue"><div id="hueK" class="huek"></div></div>
-  <span class="lbl">Korábbi 3 szín</span>
-  <div class="row" id="penRecent"></div>
+  <div class="row between"><label for="penHexIn" class="lbl">Színkód</label><input id="penHexIn" class="txt hexin" maxlength="7" autocomplete="off" spellcheck="false"></div>
   <div class="hr"></div>
   <div class="row between"><label for="penW" class="lbl">Vastagság</label>
     <span class="mmbox"><input id="penMm" class="txt mm" inputmode="decimal" autocomplete="off" aria-label="Tollvastagság mm-ben"><span>mm</span></span></div>
@@ -88,8 +90,9 @@
 <!-- Kiemelő panel -->
 <section id="pHi" class="sky side-panel" hidden aria-label="Szövegkiemelő beállításai">
   <div class="row between"><h2>Szövegkiemelő</h2><span class="hex" id="hiHex"></span></div>
-  <span class="lbl">Szín</span>
-  <div class="row" id="hiColors"></div>
+  <span class="lbl strong">Saját 4 szín</span>
+  <div class="row slots" id="hiColors"></div>
+  <div class="row between"><label for="hiPick" class="lbl">A kijelölt színhely színe</label><input type="color" id="hiPick" class="pick"></div>
   <div class="hr"></div>
   <div class="row between"><label for="hiW" class="lbl">Szélesség</label>
     <span class="mmbox"><input id="hiMm" class="txt mm" inputmode="decimal" autocomplete="off" aria-label="Kiemelő szélessége mm-ben"><span>mm</span></span></div>

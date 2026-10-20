@@ -206,3 +206,8 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:30px}
 .ctline svg{width:18px;height:18px}
 #ctList{flex:1;gap:8px}
 .err{color:var(--danger)!important;margin:0}
+
+.slots{gap:12px}
+.slots .sw{width:40px;height:40px;min-width:40px;min-height:40px}
+.hexin{width:110px;min-height:38px;font-variant-numeric:tabular-nums;text-transform:uppercase;text-align:center}
+.pick{width:64px;height:40px;border:1px solid var(--line);border-radius:8px;background:transparent;padding:2px}

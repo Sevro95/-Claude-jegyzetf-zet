@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.2.0";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -52,7 +52,7 @@ const DB = {
 /* ================= Állapot ================= */
 const DEF_SET = {
   penColor: "#1F4FA3", penW: 2.6, hiColor: "#F2C200", hiW: 3, erMode: "stroke", erR: 12,
-  recentPen: ["#C2410C", "#1E2227", "#2E7D32"], recentHi: ["#7ED957", "#7CC4FF", "#FF8FC8"],
+  penSlot: 0, hiSlot: 0,
   recentW: { pen: [], hi: [], pc: [] }, favW: { pen: null, hi: null, pc: null }, pcW: 2.2, pcHard: "HB",
   rail: "right", lastNb: null, lastPage: {}, clientId: "", driveOn: false,
 };
@@ -451,7 +451,6 @@ function endPointer(e) {
     const s = a.s; xL.clearRect(0, 0, W, H); bbox(s); s.mt = s.ts;
     const snap = snapshot(pg); pg.strokes.push(s); pushUndo(pg, snap);
     if (pg.marks.some(m => m.done && m.k === "box")) drawInk(); else drawStroke(xI, s);
-    if (s.t === "p") rememberColor("pen", s.c);
     rememberWidth(s.t === "h" ? "hi" : s.t === "g" ? "pc" : "pen", s.w);
     touchPage(pg);
   }
@@ -545,7 +544,7 @@ $("sCopy").onclick = () => { const pg = S.page; pushUndo(pg, snapshot(pg)); cons
   S.sel = { ids, mids }; selBounds(); placeSel(); drawInk(); touchPage(pg); };
 $("sColor").onclick = () => {
   const rc = $("recolor"); if (!rc.hidden) { rc.hidden = true; return; } rc.textContent = "";
-  const cols = [...new Set([S.set.penColor, ...S.set.recentPen, ...favPens().map(f => f.c), "#1E2227", "#1F4FA3", "#C2410C", "#2E7D32"].map(c => c.toLowerCase()))].slice(0, 8);
+  const cols = [...new Set([...slots("pen"), ...favPens().map(f => f.c), "#1E2227"].map(c => c.toLowerCase()))].slice(0, 8);
   cols.forEach(c => rc.append(swatch(c, false, "Átszínezés: " + c, () => {
     const pg = S.page; pushUndo(pg, snapshot(pg)); const now = Date.now();
     pg.strokes = pg.strokes.map(s => S.sel.ids.has(s.id) && s.t === "p" ? { ...s, c, mt: now } : s);
@@ -593,13 +592,15 @@ $("bMix").onclick = () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pe
 function renderPanel(id) {
   if (id === "pPen") {
     renderFavPens(); syncPicker();
-    const box = $("penRecent"); box.textContent = "";
-    S.set.recentPen.slice(0, 3).forEach(c => box.append(swatch(c, false, "Előző szín " + c, () => rememberColor("pen", c))));
+    const box = $("penSlots"), a = activeSlot("pen"); box.textContent = "";
+    slots("pen").forEach((c, i) => box.append(swatch(c, i === a, "Toll " + (i + 1) + ". színhelye " + c, () => { if (S.tool !== "pen") setTool("pen"); useSlot("pen", i); })));
+    if (document.activeElement !== $("penHexIn")) $("penHexIn").value = slots("pen")[a].toUpperCase();
     renderWidthFor("pen");
   } else if (id === "pHi") {
     const box = $("hiColors"); box.textContent = "";
-    const cols = [...new Set([...HI_PRESETS, ...S.set.recentHi, S.set.hiColor].map(c => c.toLowerCase()))].slice(0, 7);
-    cols.forEach(c => box.append(swatch(c, c === S.set.hiColor.toLowerCase(), "Kiemelő színe " + c, () => rememberColor("hi", c))));
+    const a = activeSlot("hi");
+    slots("hi").forEach((c, i) => box.append(swatch(c, i === a, "Kiemelő " + (i + 1) + ". színhelye " + c, () => useSlot("hi", i))));
+    $("hiPick").value = slots("hi")[a];
     $("hiHex").textContent = S.set.hiColor.toUpperCase();
     renderWidthFor("hi");
   } else if (id === "pPc") {
@@ -612,24 +613,28 @@ function swatch(c, pressed, label, fn) {
 }
 
 /* ================= Színek ================= */
-const HI_PRESETS = ["#F2C200", "#7ED957", "#FF8FC8", "#7CC4FF"];
+/* 4 fix, saját beállítású színhely tollhoz és kiemelőhöz – a használt színeket az app nem menti magától */
+const DEF_SLOTS = { pen: ["#1F4FA3", "#1E2227", "#C2410C", "#2E7D32"], hi: ["#F2C200", "#7ED957", "#FF8FC8", "#7CC4FF"] };
 function colorKind() { return S.tool === "hi" ? "hi" : "pen"; }
-function rememberColor(kind, c) {
-  const key = kind === "hi" ? "recentHi" : "recentPen", curKey = kind === "hi" ? "hiColor" : "penColor";
-  const prev = S.set[curKey];
-  if (prev && prev.toLowerCase() !== c.toLowerCase()) S.set[key] = [prev, ...S.set[key].filter(x => x.toLowerCase() !== prev.toLowerCase() && x.toLowerCase() !== c.toLowerCase())].slice(0, 3);
-  else S.set[key] = S.set[key].filter(x => x.toLowerCase() !== c.toLowerCase()).slice(0, 3);
-  S.set[curKey] = c; saveSettings(); renderPalette();
+function slots(k) { const key = k + "Slots"; if (!Array.isArray(S.set[key]) || S.set[key].length !== 4) S.set[key] = DEF_SLOTS[k].slice(); return S.set[key]; }
+function activeSlot(k) { return Math.max(0, Math.min(3, S.set[k + "Slot"] | 0)); }
+const curKeyOf = k => k === "hi" ? "hiColor" : "penColor";
+function setColor(kind, c) {
+  S.set[curKeyOf(kind)] = c; saveSettings(); renderPalette();
   if (!$("pPen").hidden && !pickDrag) renderPanel("pPen");
   if (!$("pHi").hidden) renderPanel("pHi");
 }
-/* paletta: aktuális szín + az előző 3 */
+function useSlot(k, i) { S.set[k + "Slot"] = i; setColor(k, slots(k)[i]); }
+function setSlotColor(k, i, c) { slots(k)[i] = c; S.set[k + "Slot"] = i; setColor(k, c); }
+/* paletta: a 4 színhely; az aktívra még egyszer koppintva megnyílik a beállítás */
 function renderPalette() {
-  const k = colorKind(), cur = k === "hi" ? S.set.hiColor : S.set.penColor, rec = k === "hi" ? S.set.recentHi : S.set.recentPen;
-  const box = $("recent"); box.textContent = "";
-  box.append(swatch(cur, true, "Aktuális szín " + cur, () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); else $("bMix").click(); }));
-  rec.filter(c => c.toLowerCase() !== cur.toLowerCase()).slice(0, 3).forEach(c =>
-    box.append(swatch(c, false, "Előző szín " + c, () => { if (S.tool !== "pen" && S.tool !== "hi") setTool("pen"); rememberColor(colorKind(), c); })));
+  const k = colorKind(), cur = S.set[curKeyOf(k)], a = activeSlot(k), box = $("recent"); box.textContent = "";
+  slots(k).forEach((c, i) => box.append(swatch(c, i === a && c.toLowerCase() === cur.toLowerCase(), (k === "hi" ? "Kiemelő " : "Toll ") + (i + 1) + ". színe " + c, () => {
+    if (S.tool !== "pen" && S.tool !== "hi") setTool("pen");
+    const kk = colorKind();
+    if (activeSlot(kk) === i && S.set[curKeyOf(kk)].toLowerCase() === slots(kk)[i].toLowerCase()) { $("bMix").click(); return; }
+    useSlot(kk, i);
+  })));
   renderFavW();
 }
 function hexToRgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.split("").map(c => c + c).join(""); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -648,15 +653,24 @@ function drawPicker() {
   $("svK").style.left = (hsv[1] * 100) + "%"; $("svK").style.top = ((1 - hsv[2]) * 100) + "%";
   $("hueK").style.left = (hsv[0] / 360 * 100) + "%"; $("penHex").textContent = S.set.penColor.toUpperCase();
 }
-function livePick() { S.set.penColor = rgbToHex(...hsvToRgb(hsv[0] % 360, hsv[1], hsv[2])); drawPicker(); renderPalette(); drawPenPreview(); }
+function livePick() { const c = rgbToHex(...hsvToRgb(hsv[0] % 360, hsv[1], hsv[2])); S.set.penColor = c; slots("pen")[activeSlot("pen")] = c;
+  drawPicker(); renderPalette(); drawPenPreview(); const sw = $("penSlots").children[activeSlot("pen")]; if (sw) sw.style.background = c; $("penHexIn").value = c.toUpperCase(); }
 for (const [id, fn] of [["sv", (x, y) => { hsv[1] = x; hsv[2] = 1 - y; }], ["hue", x => { hsv[0] = Math.min(359.9, x * 360); }]]) {
   const el = $(id);
   const at = e => { const r = el.getBoundingClientRect(); fn(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))); };
-  el.addEventListener("pointerdown", e => { e.preventDefault(); if (S.tool !== "pen") setTool("pen"); pickDrag = { id, start: S.set.penColor }; try { el.setPointerCapture(e.pointerId); } catch (_) {} at(e); livePick(); });
+  el.addEventListener("pointerdown", e => { e.preventDefault(); if (S.tool !== "pen") setTool("pen"); pickDrag = { id }; try { el.setPointerCapture(e.pointerId); } catch (_) {} at(e); livePick(); });
   el.addEventListener("pointermove", e => { if (!pickDrag || pickDrag.id !== id) return; at(e); livePick(); });
-  const end = () => { if (!pickDrag || pickDrag.id !== id) return; const prev = pickDrag.start, c = S.set.penColor; pickDrag = null; S.set.penColor = prev; rememberColor("pen", c); };
+  const end = () => { if (!pickDrag || pickDrag.id !== id) return; pickDrag = null; setSlotColor("pen", activeSlot("pen"), S.set.penColor); };
   el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
 }
+
+$("penHexIn").addEventListener("change", () => {
+  const v = $("penHexIn").value.trim().replace(/^#?/, "#");
+  if (/^#[0-9a-f]{6}$/i.test(v)) { if (S.tool !== "pen") setTool("pen"); setSlotColor("pen", activeSlot("pen"), v.toLowerCase()); syncPicker(); }
+  else { $("penHexIn").value = slots("pen")[activeSlot("pen")].toUpperCase(); toast("Színkód formátuma: #1F4FA3"); }
+});
+$("penHexIn").addEventListener("keydown", e => { if (e.key === "Enter") $("penHexIn").blur(); });
+$("hiPick").addEventListener("input", () => setSlotColor("hi", activeSlot("hi"), $("hiPick").value));
 
 /* ================= Kedvenc tollak ================= */
 const DEF_FAV = [{ n: "Jegyzet", c: "#1F4FA3", mm: .6 }, { n: "Megjegyzés", c: "#C2410C", mm: 1 }, { n: "Vázlat", c: "#1E2227", mm: .35 }];
@@ -674,7 +688,7 @@ function renderFavPens() {
     const nm = document.createElement("span"); nm.textContent = f.n;
     const mm = document.createElement("span"); mm.className = "mm"; mm.textContent = fmtMm(mmOfW("pen", f.w));
     b.append(svg, nm, mm);
-    b.onclick = () => { if (S.tool !== "pen") setTool("pen"); setWidth("pen", f.w); rememberColor("pen", f.c); renderPanel("pPen"); };
+    b.onclick = () => { if (S.tool !== "pen") setTool("pen"); setWidth("pen", f.w); setColor("pen", f.c); renderPanel("pPen"); };
     const d = document.createElement("button"); d.className = "del"; d.setAttribute("aria-label", "Kedvenc törlése: " + f.n);
     d.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     d.onclick = () => { list.splice(i, 1); saveSettings(); renderFavPens(); };
@@ -1336,7 +1350,7 @@ function pickColorDialog(title, cur, kind, fn) {
   body.innerHTML = `<div class="colors" id="pcRec"></div><label for="pcIn">Színkeverő</label><input type="color" id="pcIn">`;
   const inp = body.querySelector("#pcIn"); inp.value = cur;
   const rec = body.querySelector("#pcRec");
-  [cur, ...(kind === "hi" ? S.set.recentHi : S.set.recentPen)].slice(0, 4).forEach(c => { const b = document.createElement("button"); b.style.background = c; b.setAttribute("aria-label", c);
+  [cur, ...slots(kind === "hi" ? "hi" : "pen")].slice(0, 5).forEach(c => { const b = document.createElement("button"); b.style.background = c; b.setAttribute("aria-label", c);
     b.onclick = () => { inp.value = c; rec.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); }; rec.append(b); });
   dialog(title, body, [["Mégse"], ["Alkalmaz", "pri", () => fn(inp.value)]]);
 }
