@@ -4,7 +4,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.1.0";
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -53,7 +53,7 @@ const DB = {
 const DEF_SET = {
   penColor: "#1F4FA3", penW: 2.6, hiColor: "#F2C200", hiW: 3, erMode: "stroke", erR: 12,
   recentPen: ["#C2410C", "#1E2227", "#2E7D32"], recentHi: ["#7ED957", "#7CC4FF", "#FF8FC8"],
-  recentW: { pen: [], hi: [] }, favW: { pen: null, hi: null },
+  recentW: { pen: [], hi: [], pc: [] }, favW: { pen: null, hi: null, pc: null }, pcW: 2.2, pcHard: "HB",
   rail: "right", lastNb: null, lastPage: {}, clientId: "", driveOn: false,
 };
 const S = {
@@ -89,12 +89,12 @@ function unpackPts(s) { const a = s ? s.split(",").map(Number) : [], o = []; let
   return o; }
 function serializePage(pg) {
   return { v: 1, id: pg.id, nb: pg.nb, created: pg.created, updated: pg.updated, paper: pg.paper, bg: pg.bg,
-    strokes: pg.strokes.map(s => ({ id: s.id, t: s.t, c: s.c, w: s.w, ts: s.ts, mt: s.mt || s.ts, p: packPts(s.p) })),
+    strokes: pg.strokes.map(s => ({ id: s.id, t: s.t, c: s.c, w: s.w, a: s.a, ts: s.ts, mt: s.mt || s.ts, p: packPts(s.p) })),
     marks: pg.marks.map(m => ({ ...m })) };
 }
 function deserializePage(o) {
   return { id: o.id, nb: o.nb, created: o.created, updated: o.updated, paper: o.paper || "grid", bg: o.bg || null,
-    strokes: (o.strokes || []).map(s => bbox({ id: s.id, t: s.t, c: s.c, w: s.w, ts: s.ts, mt: s.mt, p: unpackPts(s.p) })),
+    strokes: (o.strokes || []).map(s => bbox({ id: s.id, t: s.t, c: s.c, w: s.w, a: s.a, ts: s.ts, mt: s.mt, p: unpackPts(s.p) })),
     marks: (o.marks || []).map(m => ({ ...m })) };
 }
 const pageTimers = {};
@@ -190,9 +190,29 @@ function drawPaper() {
 }
 
 const wOf = (s, pr) => s.t === "h" ? s.w * 6 : s.w * (0.35 + 0.95 * pr);
+/* Grafitceruza: szemcsés textúra, a nyomás az erősséget (feketeséget) adja */
+const GRAPHITE = "#33363B", HARD = { H: .5, HB: .7, B: .85, "2B": 1 };
+function pencilPattern(x, c) {
+  x.__pc = x.__pc || {}; if (x.__pc[c]) return x.__pc[c];
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const g = cv.getContext("2d"), img = g.createImageData(128, 128), [r, gg, b] = hexToRgb(c);
+  let seed = 12345; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < img.data.length; i += 4) { const v = rnd(); img.data[i] = r; img.data[i + 1] = gg; img.data[i + 2] = b; img.data[i + 3] = v < .22 ? 0 : Math.round(255 * Math.min(1, .45 + v * .8)); }
+  g.putImageData(img, 0, 0);
+  const pat = x.createPattern(cv, "repeat"); if (pat.setTransform) pat.setTransform(new DOMMatrix().scale(.5));
+  return (x.__pc[c] = pat);
+}
+function pencilSeg(x, s, i) {
+  const p = s.p; x.save(); x.strokeStyle = pencilPattern(x, s.c); x.lineCap = "round"; x.lineJoin = "round";
+  x.globalAlpha = (s.a || .6) * (.4 + .6 * (p[i - 1][2] + p[i][2]) / 2); seg(x, s, i); x.restore();
+}
 function drawStroke(x, s) {
   const p = s.p; if (!p.length) return;
   x.lineCap = "round"; x.lineJoin = "round";
+  if (s.t === "g") {
+    if (p.length === 1) { x.save(); x.fillStyle = pencilPattern(x, s.c); x.globalAlpha = s.a || .6; x.beginPath(); x.arc(p[0][0], p[0][1], wOf(s, p[0][2]) / 2, 0, 7); x.fill(); x.restore(); return; }
+    for (let i = 1; i < p.length; i++) pencilSeg(x, s, i); return;
+  }
   if (s.t === "h") {
     x.save(); x.globalAlpha = .36; x.globalCompositeOperation = "multiply"; x.strokeStyle = s.c; x.lineWidth = s.w * 6; x.lineCap = "butt";
     x.beginPath(); x.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
@@ -213,7 +233,7 @@ function seg(x, s, i) {
 function strikeFor(pg, m) {
   const top = m.y - .35 * BOX, bot = m.y + 1.35 * BOX;
   const cand = pg.strokes.filter(s => {
-    if (s.t !== "p" || s.bb[0] < m.x + BOX * .6) return false;
+    if ((s.t !== "p" && s.t !== "g") || s.bb[0] < m.x + BOX * .6) return false;
     const cy = (s.bb[1] + s.bb[3]) / 2; return cy >= top && cy <= bot && (s.bb[3] - s.bb[1]) < 2.4 * BOX;
   }).sort((a, b) => a.bb[0] - b.bb[0]);
   let right = m.x + BOX, any = false;
@@ -312,6 +332,15 @@ $("bUndo").onclick = () => { const pg = S.page, u = S.undo.get(pg.id) || []; if 
 $("bRedo").onclick = () => { const pg = S.page, r = S.redo.get(pg.id) || []; if (!r.length) return;
   (S.undo.get(pg.id) || S.undo.set(pg.id, []).get(pg.id)).push(snapshot(pg)); restore(pg, r.pop()); updUR(); };
 
+/* Feladat-négyzet helye: mindig a bal margónál, sorba igazítva; ha a sor foglalt, a következő szabad sorba kerül */
+function boxRows(pg) { return pg.paper === "lined" ? { base: 21 * MM, step: 8 * MM } : { base: 10 * MM, step: 10 * MM }; }
+function boxSlot(pg, y) {
+  const { base, step } = boxRows(pg), x = 15 * MM - BOX / 2;
+  let k = Math.max(0, Math.round((y - base) / step));
+  const taken = cy => pg.marks.some(m => m.k === "box" && Math.abs(m.x - x) < BOX * 1.5 && Math.abs(m.y + BOX / 2 - cy) < step * .6);
+  while (taken(base + k * step) && base + (k + 1) * step < H - 15 * MM) k++;
+  return { x, y: base + k * step - BOX / 2 };
+}
 function markAt(pg, x, y, k) {
   for (let i = pg.marks.length - 1; i >= 0; i--) { const m = pg.marks[i]; if (k && m.k !== k) continue;
     if (m.k === "box" ? (x >= m.x - 2 * MM && x <= m.x + BOX + 2 * MM && y >= m.y - 2 * MM && y <= m.y + BOX + 2 * MM)
@@ -370,10 +399,11 @@ cL.addEventListener("pointerdown", e => {
   startStroke(id, p0);
 });
 function startStroke(id, p0) {
-  const t = S.tool === "hi" ? "h" : "p";
-  const s = { id: uid(), t, c: t === "h" ? S.set.hiColor : S.set.penColor, w: t === "h" ? S.set.hiW : S.set.penW, p: [p0], ts: Date.now() };
+  const t = S.tool === "hi" ? "h" : S.tool === "pc" ? "g" : "p";
+  const s = { id: uid(), t, c: t === "h" ? S.set.hiColor : t === "g" ? GRAPHITE : S.set.penColor, w: t === "h" ? S.set.hiW : t === "g" ? S.set.pcW : S.set.penW, p: [p0], ts: Date.now() };
+  if (t === "g") s.a = HARD[S.set.pcHard] || .6;
   act = { kind: "draw", id, s };
-  if (t === "p") drawStroke(xL, s);
+  if (t !== "h") drawStroke(xL, s);
 }
 cL.addEventListener("pointermove", e => {
   if (pan && e.pointerId === pan.id) { $("desk").scrollTop = pan.st - (e.clientY - pan.y); return; }
@@ -396,7 +426,7 @@ cL.addEventListener("pointermove", e => {
     const s = act.s;
     for (const ev of evs) { const [x, y] = ptOf(ev), l = s.p[s.p.length - 1];
       if (Math.hypot(x - l[0], y - l[1]) < .5 / SC) continue;
-      s.p.push([x, y, pressureOf(ev)]); if (s.t === "p" && s.p.length > 2) seg(xL, s, s.p.length - 2); }
+      s.p.push([x, y, pressureOf(ev)]); if (s.p.length > 2) { if (s.t === "p") seg(xL, s, s.p.length - 2); else if (s.t === "g") pencilSeg(xL, s, s.p.length - 2); } }
     if (s.t === "h") { xL.clearRect(0, 0, W, H); drawStroke(xL, s); }
   }
 });
@@ -411,7 +441,7 @@ function endPointer(e) {
     if (m) { if (k === "q") questionDialog(pg, m); else toggleMark(pg, m); return; }
     if (k === "q") { questionDialog(pg, null, a.x, a.y); return; }
     pushUndo(pg, snapshot(pg));
-    const nm = k === "box" ? { id: uid(), k, x: a.x - BOX / 2, y: a.y - BOX / 2, done: false, ts: Date.now() }
+    const nm = k === "box" ? { id: uid(), k, ...boxSlot(pg, a.y), done: false, ts: Date.now() }
       : { id: uid(), k, x: a.x, y: a.y, done: false, ts: Date.now() };
     pg.marks.push(nm); drawInk(); touchPage(pg); return;
   }
@@ -422,7 +452,7 @@ function endPointer(e) {
     const snap = snapshot(pg); pg.strokes.push(s); pushUndo(pg, snap);
     if (pg.marks.some(m => m.done && m.k === "box")) drawInk(); else drawStroke(xI, s);
     if (s.t === "p") rememberColor("pen", s.c);
-    rememberWidth(s.t === "h" ? "hi" : "pen", s.w);
+    rememberWidth(s.t === "h" ? "hi" : s.t === "g" ? "pc" : "pen", s.w);
     touchPage(pg);
   }
 }
@@ -527,8 +557,8 @@ $("sDone").onclick = () => clearSel();
 $("desk").addEventListener("scroll", () => { if (S.sel) placeSel(); }, { passive: true });
 
 /* ================= Panelek ================= */
-const PANELS = ["pPen", "pHi", "pEr", "drawer", "fileMenu", "tasks"];
-const PANEL_BTN = { drawer: "bNbs", fileMenu: "bFile", tasks: "bTasks" };
+const PANELS = ["pPen", "pHi", "pPc", "pEr", "drawer", "fileMenu", "tasks", "contacts"];
+const PANEL_BTN = { drawer: "bNbs", fileMenu: "bFile", tasks: "bTasks", contacts: "bContacts" };
 function closePanels(except) {
   for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
 }
@@ -546,7 +576,7 @@ document.addEventListener("pointerdown", e => {
 }, true);
 
 /* ================= Eszközök ================= */
-const TOOL_PANEL = { pen: "pPen", hi: "pHi", er: "pEr" };
+const TOOL_PANEL = { pen: "pPen", hi: "pHi", pc: "pPc", er: "pEr" };
 function setTool(t) {
   if (t !== "lasso") clearSel();
   S.tool = t;
@@ -572,6 +602,9 @@ function renderPanel(id) {
     cols.forEach(c => box.append(swatch(c, c === S.set.hiColor.toLowerCase(), "Kiemelő színe " + c, () => rememberColor("hi", c))));
     $("hiHex").textContent = S.set.hiColor.toUpperCase();
     renderWidthFor("hi");
+  } else if (id === "pPc") {
+    document.querySelectorAll("#pcHard button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.h === S.set.pcHard)));
+    renderWidthFor("pc");
   } else if (id === "pEr") { markErMode(); $("erSize").value = S.set.erR; $("erOut").textContent = mmTxt(S.set.erR * 2); }
 }
 function swatch(c, pressed, label, fn) {
@@ -657,19 +690,20 @@ $("favName").addEventListener("keydown", e => { if (e.key === "Enter") saveFav()
 
 /* ================= Vastagság: mm-ben is beírható, utolsó 3 megjegyezve, 1 kedvenc ================= */
 const mmTxt = u => (u / MM).toFixed(u / MM < 1 ? 2 : 1).replace(".", ",") + " mm";
-const wKind = () => S.tool === "hi" ? "hi" : "pen";
+const wKind = () => S.tool === "hi" ? "hi" : S.tool === "pc" ? "pc" : "pen";
 const mmOfW = (k, w) => k === "hi" ? w * 6 / MM : w * .95 / MM;
 const wOfMm = (k, mm) => k === "hi" ? mm * MM / 6 : mm * MM / .95;
 const fmtMm = v => v.toFixed(2).replace(/0$/, "").replace(".", ",") + " mm";
 const sameW = (a, b) => a != null && b != null && Math.abs(a - b) < .01;
-function curW(k) { return S.set[k === "hi" ? "hiW" : "penW"]; }
-function setWidth(k, w) { S.set[k === "hi" ? "hiW" : "penW"] = Math.max(.2, Math.min(40, w)); saveSettings(); renderWidthUI(); }
+const WKEY = { pen: "penW", hi: "hiW", pc: "pcW" };
+function curW(k) { return S.set[WKEY[k]]; }
+function setWidth(k, w) { S.set[WKEY[k]] = Math.max(.2, Math.min(40, w)); saveSettings(); renderWidthUI(); }
 function rememberWidth(k, w) {
   if (!S.set.recentW) S.set.recentW = { pen: [], hi: [] };
   const r = S.set.recentW[k] || []; if (sameW(r[0], w)) return;
   S.set.recentW[k] = [w, ...r.filter(x => !sameW(x, w))].slice(0, 3); saveSettings(); renderWidthUI();
 }
-const WUI = { pen: { r: "penW", m: "penMm", c: "penChips", f: "penFav" }, hi: { r: "hiW", m: "hiMm", c: "hiChips", f: "hiFav" } };
+const WUI = { pen: { r: "penW", m: "penMm", c: "penChips", f: "penFav" }, hi: { r: "hiW", m: "hiMm", c: "hiChips", f: "hiFav" }, pc: { r: "pcW", m: "pcMm", c: "pcChips", f: "pcFav" } };
 function renderWidthFor(k) {
   const u = WUI[k], w = curW(k), fav = (S.set.favW || {})[k];
   $(u.r).value = Math.min(+$(u.r).max, Math.max(+$(u.r).min, w));
@@ -680,9 +714,9 @@ function renderWidthFor(k) {
   if (fav != null) chip(fav, true);
   ((S.set.recentW || {})[k] || []).filter(x => !sameW(x, fav)).slice(0, 3).forEach(v => chip(v, false));
   $(u.f).textContent = sameW(fav, w) ? "★ Ez a kedvenc (koppints a törléshez)" : (k === "hi" ? "☆ Legyen kedvenc szélesség" : "☆ Legyen kedvenc vastagság");
-  if (k === "pen") drawPenPreview();
+  if (k === "pen") drawPenPreview(); if (k === "pc") drawPcPreview();
 }
-for (const k of ["pen", "hi"]) {
+for (const k of ["pen", "hi", "pc"]) {
   const u = WUI[k];
   $(u.r).addEventListener("input", () => setWidth(k, +$(u.r).value));
   $(u.m).addEventListener("change", () => { const v = parseFloat(String($(u.m).value).replace(",", "."));
@@ -692,13 +726,20 @@ for (const k of ["pen", "hi"]) {
     S.set.favW[k] = sameW(S.set.favW[k], curW(k)) ? null : curW(k); saveSettings(); renderWidthUI(); };
 }
 function renderFavW() {
-  const k = wKind(), fav = (S.set.favW || {})[k], fb = $("favW"), show = (S.tool === "pen" || S.tool === "hi") && fav != null;
+  const k = wKind(), fav = (S.set.favW || {})[k], fb = $("favW"), show = (S.tool === "pen" || S.tool === "hi" || S.tool === "pc") && fav != null;
   fb.hidden = !show;
   if (show) { fb.querySelector("span").textContent = fmtMm(mmOfW(k, fav)).replace(" mm", ""); fb.setAttribute("aria-pressed", String(sameW(fav, curW(k))));
     fb.title = (k === "hi" ? "Kedvenc szélesség: " : "Kedvenc vastagság: ") + fmtMm(mmOfW(k, fav)); }
 }
 $("favW").onclick = () => { const k = wKind(), f = (S.set.favW || {})[k]; if (f != null) { setWidth(k, f); toast("Kedvenc: " + fmtMm(mmOfW(k, f))); } };
-function renderWidthUI() { renderFavW(); if (!$("pPen").hidden) renderWidthFor("pen"); if (!$("pHi").hidden) renderWidthFor("hi"); }
+function renderWidthUI() { renderFavW(); if (!$("pPen").hidden) renderWidthFor("pen"); if (!$("pHi").hidden) renderWidthFor("hi"); if (!$("pPc").hidden) renderWidthFor("pc"); }
+document.querySelectorAll("#pcHard button").forEach(b => b.onclick = () => { S.set.pcHard = b.dataset.h; saveSettings(); renderPanel("pPc"); drawPcPreview(); });
+function drawPcPreview() {
+  const c = $("pcPrev"), x = c.getContext("2d"), k = 8 / MM; // 1 mm = 8 px, mint a toll előnézeténél
+  x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, c.width, c.height); x.setTransform(k, 0, 0, k, 0, 0);
+  const p = []; for (let i = 0; i <= 60; i++) { const t = i / 60; p.push([(12 + t * 416) / k, (24 + Math.sin(t * 6.3) * 12) / k, .3 + .65 * Math.sin(t * Math.PI)]); }
+  drawStroke(x, { t: "g", c: GRAPHITE, w: S.set.pcW, a: HARD[S.set.pcHard] || .6, p });
+}
 function drawPenPreview() {
   const c = $("penPrev"), x = c.getContext("2d"); x.clearRect(0, 0, c.width, c.height);
   x.strokeStyle = S.set.penColor; x.lineCap = "round"; x.lineWidth = Math.max(1, mmOfW("pen", S.set.penW) * 8);
@@ -853,7 +894,7 @@ $("tkAll").onchange = () => renderTasks();
 function itemRegion(pg, m) {
   if (m.k === "box") { const st = strikeFor({ ...pg, marks: [] }, m); const x1 = Math.min(W, st ? st[2] + 4 * MM : m.x + 120 * MM);
     return [Math.max(0, m.x - 3 * MM), Math.max(0, m.y - 4 * MM), x1, Math.min(H, m.y + BOX + 4 * MM)]; }
-  const cand = pg.strokes.filter(s => s.t === "p" && s.bb[0] > m.x && Math.abs((s.bb[1] + s.bb[3]) / 2 - m.y) < QR * 2.4).sort((a, b) => a.bb[0] - b.bb[0]);
+  const cand = pg.strokes.filter(s => (s.t === "p" || s.t === "g") && s.bb[0] > m.x && Math.abs((s.bb[1] + s.bb[3]) / 2 - m.y) < QR * 2.4).sort((a, b) => a.bb[0] - b.bb[0]);
   let right = m.x + QR; for (const s of cand) { if (s.bb[0] - right > 22 * MM) break; right = Math.max(right, s.bb[2]); }
   const L = qLayout(m);
   if (L) return [Math.max(0, Math.min(m.x - QR, L.x) - 3 * MM), Math.max(0, Math.min(m.y - QR, L.y) - 3 * MM), Math.min(W, Math.max(m.x + QR, L.x + L.w) + 3 * MM), Math.min(H, Math.max(m.y + QR, L.y + L.h) + 3 * MM)];
@@ -898,6 +939,64 @@ function flashAt(m) {
   xL.clearRect(0, 0, W, H); xL.save(); xL.strokeStyle = "#c25a00"; xL.lineWidth = 3;
   const r = m.k === "box" ? [m.x - 3 * MM, m.y - 3 * MM, BOX + 6 * MM, BOX + 6 * MM] : [m.x - QR - 3 * MM, m.y - QR - 3 * MM, 2 * QR + 6 * MM, 2 * QR + 6 * MM];
   xL.strokeRect(...r); xL.restore(); setTimeout(() => { if (!act) xL.clearRect(0, 0, W, H); }, 1600);
+}
+
+/* ================= Névjegyek (projektenként) ================= */
+const ROLES = ["Megrendelő", "Építész", "Statikus", "Épületgépész", "Villamos", "Generálkivitelező", "Alvállalkozó", "Üzemeltető", "Tűzvédelem", "Energetikus", "Gyártó / forgalmazó", "Hatóság"];
+$("bContacts").onclick = () => { if (openPanel("contacts")) renderContacts(); };
+$("ctClose").onclick = () => closePanels();
+$("ctNew").onclick = () => contactDialog(null);
+$("ctSearch").addEventListener("input", () => renderContacts());
+function renderContacts() {
+  const nb = S.nb, list = (nb.contacts || []).slice().sort((a, b) => a.name.localeCompare(b.name, "hu"));
+  const q = $("ctSearch").value.trim().toLowerCase();
+  $("ctTitle").textContent = "Névjegyek – " + nb.name;
+  const box = $("ctList"); box.textContent = "";
+  const shown = list.filter(c => !q || [c.name, c.role, c.phone, c.email].join(" ").toLowerCase().includes(q));
+  for (const c of shown) {
+    const card = document.createElement("div"); card.className = "ct";
+    const head = document.createElement("div"); head.className = "cthead";
+    const nm = document.createElement("div"); nm.className = "ctname"; nm.textContent = c.name;
+    const rl = document.createElement("div"); rl.className = "ctrole"; rl.textContent = c.role || "";
+    const info = document.createElement("div"); info.className = "ctinfo"; info.append(nm, rl);
+    const ed = document.createElement("button"); ed.className = "edit"; ed.setAttribute("aria-label", "Névjegy szerkesztése: " + c.name);
+    ed.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg>'; ed.onclick = () => contactDialog(c);
+    head.append(info, ed); card.append(head);
+    const line = (href, text, icon) => { const a = document.createElement("a"); a.className = "ctline"; a.href = href;
+      a.innerHTML = icon; const sp = document.createElement("span"); sp.textContent = text; a.append(sp); card.append(a); };
+    if (c.phone) line("tel:" + c.phone.replace(/[^0-9+]/g, ""), c.phone, '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>');
+    if (c.email) line("mailto:" + c.email, c.email, '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>');
+    box.append(card);
+  }
+  if (!shown.length) { const p = document.createElement("div"); p.className = "empty";
+    p.textContent = list.length ? "Nincs találat." : "Ehhez a projekthez még nincs névjegy. Az „Új névjegy” gombbal adhatsz hozzá."; box.append(p); }
+}
+function contactDialog(c) {
+  const nb = S.nb, isNew = !c;
+  const body = document.createElement("div"); body.className = "dlgbody";
+  body.innerHTML = `<label for="cName">Név</label><input type="text" id="cName" maxlength="80" autocomplete="off">
+    <label for="cPhone">Telefonszám</label><input type="text" id="cPhone" inputmode="tel" maxlength="40" autocomplete="off" placeholder="+36 30 123 4567">
+    <label for="cMail">E-mail</label><input type="text" id="cMail" inputmode="email" maxlength="120" autocomplete="off" placeholder="nev@ceg.hu">
+    <label for="cRole">Szakág</label><input type="text" id="cRole" list="roleList" maxlength="60" autocomplete="off" placeholder="pl. Épületgépész">
+    <datalist id="roleList">${ROLES.map(r => `<option value="${esc(r)}">`).join("")}</datalist>
+    <p id="cErr" class="err" hidden></p>`;
+  const f = id => body.querySelector(id);
+  if (c) { f("#cName").value = c.name; f("#cPhone").value = c.phone || ""; f("#cMail").value = c.email || ""; f("#cRole").value = c.role || ""; }
+  const save = () => {
+    const name = f("#cName").value.trim(), phone = f("#cPhone").value.trim(), email = f("#cMail").value.trim(), role = f("#cRole").value.trim();
+    const err = !name ? "A név megadása kötelező." : (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? "Az e-mail cím formátuma nem jó." : "";
+    if (err) { f("#cErr").textContent = err; f("#cErr").hidden = false; return false; }
+    nb.contacts = nb.contacts || []; const now = Date.now();
+    if (isNew) nb.contacts.push({ id: uid(), name, phone, email, role, created: now, updated: now });
+    else Object.assign(nb.contacts.find(x => x.id === c.id) || {}, { name, phone, email, role, updated: now });
+    nb.updated = now; saveNotebooks(); Sync.schedule(3000); renderContacts(); toast(isNew ? "Névjegy mentve" : "Névjegy frissítve");
+  };
+  const btns = [];
+  if (!isNew) btns.push(["Törlés", "dan", () => setTimeout(() => dialog("Névjegy törlése", `<p>„${esc(c.name)}” névjegye törlődik ebből a projektből.</p>`,
+    [["Mégse"], ["Törlés", "dan", () => { nb.contacts = (nb.contacts || []).filter(x => x.id !== c.id); nb.updated = Date.now(); saveNotebooks(); Sync.schedule(3000); renderContacts(); toast("Névjegy törölve"); }]]), 0)]);
+  btns.push(["Mégse"], ["Mentés", "pri", save]);
+  dialog(isNew ? "Új névjegy" : "Névjegy", body, btns);
+  setTimeout(() => f("#cName").focus(), 60);
 }
 
 /* ================= Import / export ================= */
@@ -1148,7 +1247,7 @@ const Sync = {
       const lastInk = Math.max(pg.created, ...pg.strokes.map(s => s.mt || s.ts || 0), ...pg.marks.map(m => Math.max(m.ts || 0, m.dt || 0)));
       pages[id] = { nb: nb.id, notebookName: nb.name, pageNo: i + 1, created: pg.created, updated: pg.updated, lastInk, json: f.json, img: f.img, bgFile: pg.bg ? this.ids.bgs[pg.bg.id] : undefined }; });
     return { v: 1, app: "Tervezői jegyzetfüzet " + APP_VERSION, updated: Date.now(), timezone: "Europe/Budapest",
-      notebooks: S.notebooks.map(n => ({ id: n.id, name: n.name, color: n.color, paper: n.paper, created: n.created, updated: n.updated, pages: n.pages })),
+      notebooks: S.notebooks.map(n => ({ id: n.id, name: n.name, color: n.color, paper: n.paper, created: n.created, updated: n.updated, pages: n.pages, contacts: n.contacts || [] })),
       pages, deleted: S.deleted };
   },
   buildOpen() {
@@ -1229,7 +1328,7 @@ function dialog(title, body, buttons) {
   if (typeof body === "string") b.innerHTML = body; else b.append(body);
   const row = $("dlgBtns"); row.textContent = "";
   for (const [label, kind, fn] of buttons) { const btn = document.createElement("button"); btn.className = "btn" + (kind === "pri" ? " pri" : kind === "dan" ? " dan" : ""); btn.textContent = label;
-    btn.onclick = () => { $("dlg").hidden = true; if (fn) fn(); }; row.append(btn); }
+    btn.onclick = () => { if (fn && fn() === false) return; $("dlg").hidden = true; }; row.append(btn); }
   $("dlg").hidden = false;
 }
 function pickColorDialog(title, cur, kind, fn) {
