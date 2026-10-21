@@ -211,3 +211,9 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:30px}
 .slots .sw{width:40px;height:40px;min-width:40px;min-height:40px}
 .hexin{width:110px;min-height:38px;font-variant-numeric:tabular-nums;text-transform:uppercase;text-align:center}
 .pick{width:64px;height:40px;border:1px solid var(--line);border-radius:8px;background:transparent;padding:2px}
+
+.errlog{white-space:pre-wrap;font:12px/1.45 ui-monospace,monospace;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:40vh;overflow:auto;margin:0;-webkit-user-select:text;user-select:text}
+.fatal{position:fixed;inset:0;z-index:100;background:rgba(10,14,18,.5);display:grid;place-items:center;padding:16px}
+.fatal .fbox{background:var(--chrome);border-radius:14px;padding:20px;max-width:440px;display:flex;flex-direction:column;gap:12px}
+.fatal h3{margin:0}.fatal p{margin:0;color:var(--muted)}
+.fatal pre{white-space:pre-wrap;font:12px ui-monospace,monospace;margin:0;max-height:30vh;overflow:auto}

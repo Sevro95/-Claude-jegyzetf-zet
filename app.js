@@ -4,7 +4,24 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.2.1";
+/* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
+const ERRLOG = "jf_errlog";
+function logError(kind, msg) {
+  try { const l = JSON.parse(localStorage.getItem(ERRLOG) || "[]"); l.unshift({ t: new Date().toISOString(), v: APP_VERSION, k: kind, m: String(msg).slice(0, 600) });
+    localStorage.setItem(ERRLOG, JSON.stringify(l.slice(0, 30))); } catch (_) {}
+}
+addEventListener("error", e => { logError("hiba", (e.message || "") + " @ " + (e.filename || "").split("/").pop() + ":" + e.lineno + (e.error && e.error.stack ? "\n" + e.error.stack : "")); });
+addEventListener("unhandledrejection", e => { const r = e.reason; logError("ígéret", r && (r.stack || r.message) || r); });
+/* Verzióellenőrzés: ha az oldal (index.html) és a program (app.js) különböző változatból jött, egyszer frissen újratölt */
+(() => {
+  const want = document.querySelector('meta[name="app-version"]'), v = want && want.content;
+  if (v && v !== APP_VERSION) {
+    let tried = false; try { tried = sessionStorage.getItem("jf_vfix") === v + "/" + APP_VERSION; sessionStorage.setItem("jf_vfix", v + "/" + APP_VERSION); } catch (_) {}
+    logError("verzió", "index.html " + v + " ≠ app.js " + APP_VERSION);
+    if (!tried) { (window.caches ? caches.keys().then(k => Promise.all(k.map(n => caches.delete(n)))) : Promise.resolve()).finally(() => location.reload()); throw new Error("verzióeltérés – újratöltés"); }
+  }
+})();
 const W = 1000, H = Math.round(1000 * 297 / 210), MM = W / 210;
 const BOX = 6 * MM;            // jelölőnégyzet oldala
 const QR = 3.2 * MM;           // kérdésjelölő sugara
@@ -202,6 +219,24 @@ function pencilPattern(x, c) {
   const pat = x.createPattern(cv, "repeat"); if (pat.setTransform) pat.setTransform(new DOMMatrix().scale(.5));
   return (x.__pc[c] = pat);
 }
+/* Egész vonal kirajzolása kötegelve: az azonos vastagságú (és ceruzánál azonos erősségű) szakaszok egy útvonalba kerülnek – sűrű lapon sokszor gyorsabb */
+function strokeBatched(x, s, alphaFn) {
+  const p = s.p, base = x.globalAlpha; let curW = -1, curA = -1, open = false;
+  for (let i = 1; i < p.length; i++) {
+    const a = p[i - 1], b = p[i], pr = (a[2] + b[2]) / 2;
+    const w = Math.round(wOf(s, pr) * 4) / 4, al = alphaFn ? Math.round(alphaFn(pr) * 12) / 12 : 1;
+    const m0 = i === 1 ? a : [(p[i - 2][0] + a[0]) / 2, (p[i - 2][1] + a[1]) / 2];
+    const m1 = i === p.length - 1 ? b : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (w !== curW || al !== curA) {
+      if (open) x.stroke();
+      x.lineWidth = w; if (alphaFn) x.globalAlpha = base * al;
+      x.beginPath(); x.moveTo(m0[0], m0[1]); open = true; curW = w; curA = al;
+    }
+    x.quadraticCurveTo(a[0], a[1], m1[0], m1[1]);
+  }
+  if (open) x.stroke();
+  x.globalAlpha = base;
+}
 function pencilSeg(x, s, i) {
   const p = s.p; x.save(); x.strokeStyle = pencilPattern(x, s.c); x.lineCap = "round"; x.lineJoin = "round";
   x.globalAlpha = (s.a || .6) * (.4 + .6 * (p[i - 1][2] + p[i][2]) / 2); seg(x, s, i); x.restore();
@@ -211,7 +246,8 @@ function drawStroke(x, s) {
   x.lineCap = "round"; x.lineJoin = "round";
   if (s.t === "g") {
     if (p.length === 1) { x.save(); x.fillStyle = pencilPattern(x, s.c); x.globalAlpha = s.a || .6; x.beginPath(); x.arc(p[0][0], p[0][1], wOf(s, p[0][2]) / 2, 0, 7); x.fill(); x.restore(); return; }
-    for (let i = 1; i < p.length; i++) pencilSeg(x, s, i); return;
+    x.save(); x.strokeStyle = pencilPattern(x, s.c); const A = s.a || .6;
+    strokeBatched(x, s, pr => A * (.4 + .6 * pr)); x.restore(); return;
   }
   if (s.t === "h") {
     x.save(); x.globalAlpha = .36; x.globalCompositeOperation = "multiply"; x.strokeStyle = s.c; x.lineWidth = s.w * 6; x.lineCap = "butt";
@@ -220,7 +256,7 @@ function drawStroke(x, s) {
   }
   x.strokeStyle = s.c; x.fillStyle = s.c;
   if (p.length === 1) { x.beginPath(); x.arc(p[0][0], p[0][1], wOf(s, p[0][2]) / 2, 0, 7); x.fill(); return; }
-  for (let i = 1; i < p.length; i++) seg(x, s, i);
+  strokeBatched(x, s, null);
 }
 function seg(x, s, i) {
   const p = s.p, a = p[i - 1], b = p[i];
@@ -290,8 +326,13 @@ function drawMark(x, m) {
   }
   x.restore();
 }
-function paintInk(x, pg) {
-  for (const s of pg.strokes) drawStroke(x, s);
+const reach = s => s.t === "h" ? s.w * 3 + 2 : s.w * 1.4 + 2;
+const hitsRect = (bb, r, pad) => !(bb[2] + pad < r[0] || bb[0] - pad > r[2] || bb[3] + pad < r[1] || bb[1] - pad > r[3]);
+function paintInk(x, pg, clip) {
+  for (const s of pg.strokes) {
+    if (clip && s.bb && !hitsRect(s.bb, clip, reach(s))) continue;
+    try { drawStroke(x, s); } catch (e) { logError("rajz", e && e.message); }
+  }
   for (const m of pg.marks) {
     drawMark(x, m);
     if (m.k === "box" && m.done) {
@@ -300,10 +341,37 @@ function paintInk(x, pg) {
     }
   }
 }
-function drawInk() { xI.clearRect(0, 0, W, H); if (S.page) paintInk(xI, S.page); }
+function drawInk() { dirty = null; xI.clearRect(0, 0, W, H); if (S.page) paintInk(xI, S.page); }
+/* Csak a megváltozott terület újrarajzolása (radír, lasszós mozgatás, kész feladat kihúzása) */
+let dirty = null, dirtyRaf = 0;
+function markDirty(r) {
+  dirty = dirty ? [Math.min(dirty[0], r[0]), Math.min(dirty[1], r[1]), Math.max(dirty[2], r[2]), Math.max(dirty[3], r[3])] : r.slice();
+  if (!dirtyRaf) dirtyRaf = requestAnimationFrame(() => { dirtyRaf = 0; const d = dirty; dirty = null; if (d) redrawRegion(d); });
+}
+function redrawRegion(r) {
+  if (!S.page) return;
+  const a = Math.max(0, r[0] - 6), b = Math.max(0, r[1] - 6), c = Math.min(W, r[2] + 6), d = Math.min(H, r[3] + 6);
+  if (c <= a || d <= b) return;
+  xI.save(); xI.beginPath(); xI.rect(a, b, c - a, d - b); xI.clip(); xI.clearRect(a, b, c - a, d - b);
+  paintInk(xI, S.page, [a, b, c, d]); xI.restore();
+}
+const strokeRect = s => { const k = reach(s); return [s.bb[0] - k, s.bb[1] - k, s.bb[2] + k, s.bb[3] + k]; };
+function doneRowsTouching(pg, bb) {
+  return pg.marks.filter(m => m.k === "box" && m.done && bb[2] > m.x + BOX && bb[3] > m.y - .5 * BOX && bb[1] < m.y + 1.5 * BOX);
+}
 let inkRaf = 0;
 function drawInkSoon() { if (!inkRaf) inkRaf = requestAnimationFrame(() => { inkRaf = 0; drawInk(); }); }
 
+/* Drive-ra a lap képe: az éppen nyitott lapnál a már kirajzolt képernyő-rétegekből (gyors), máskor újrarajzolva */
+async function syncImage(pg) {
+  if (pg === S.page && cI.width > 0) {
+    if (dirty) { const d = dirty; dirty = null; redrawRegion(d); }
+    const c = document.createElement("canvas"); c.width = 1240; c.height = Math.round(1240 * H / W);
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(cP, 0, 0, c.width, c.height); x.drawImage(cI, 0, 0, c.width, c.height); return c;
+  }
+  return renderPageCanvas(pg, 1240);
+}
 /* Teljes lap képe (export, Drive) */
 async function renderPageCanvas(pg, widthPx) {
   await ensureBg(pg);
@@ -326,7 +394,19 @@ function pushUndo(pg, snap) {
 }
 function updUR() { const id = S.page && S.page.id;
   $("bUndo").disabled = !(S.undo.get(id) || []).length; $("bRedo").disabled = !(S.redo.get(id) || []).length; }
-function restore(pg, snap) { pg.strokes = snap.strokes.slice(); pg.marks = snap.marks.map(m => ({ ...m })); clearSel(); drawInk(); touchPage(pg); }
+/* Visszavonás/újra: csak a ténylegesen megváltozott területet rajzolja újra */
+function restore(pg, snap) {
+  const oldS = new Set(pg.strokes), newS = new Set(snap.strokes); let reg = null, n = 0;
+  const add = r => { reg = reg ? [Math.min(reg[0], r[0]), Math.min(reg[1], r[1]), Math.max(reg[2], r[2]), Math.max(reg[3], r[3])] : r.slice(); n++; };
+  for (const s of pg.strokes) if (!newS.has(s)) add(strokeRect(s));
+  for (const s of snap.strokes) if (!oldS.has(s)) add(strokeRect(s));
+  const om = new Map(pg.marks.map(m => [m.id, JSON.stringify(m)])), nm = new Map(snap.marks.map(m => [m.id, JSON.stringify(m)]));
+  for (const m of pg.marks) if (nm.get(m.id) !== om.get(m.id)) add(markRect(m));
+  for (const m of snap.marks) if (om.get(m.id) !== nm.get(m.id)) add(markRect(m));
+  pg.strokes = snap.strokes.slice(); pg.marks = snap.marks.map(m => ({ ...m })); clearSel();
+  if (reg) { if (n > 400) drawInk(); else { for (const m of doneRowsTouching(pg, reg)) add([m.x - 4, m.y - BOX, W, m.y + 2 * BOX]); markDirty(reg); } }
+  touchPage(pg);
+}
 $("bUndo").onclick = () => { const pg = S.page, u = S.undo.get(pg.id) || []; if (!u.length) return;
   (S.redo.get(pg.id) || S.redo.set(pg.id, []).get(pg.id)).push(snapshot(pg)); restore(pg, u.pop()); updUR(); };
 $("bRedo").onclick = () => { const pg = S.page, r = S.redo.get(pg.id) || []; if (!r.length) return;
@@ -367,7 +447,13 @@ function questionDialog(pg, m, x, y) {
   dialog(isNew ? "Új kérdés" : "Kérdés", body, btns);
   setTimeout(() => ta.focus(), 60);
 }
-function toggleMark(pg, m) { pushUndo(pg, snapshot(pg)); m.done = !m.done; m.dt = Date.now(); drawInk(); touchPage(pg);
+function markRect(m) {
+  if (m.k === "box") return [m.x - 4, m.y - BOX, W, m.y + 2 * BOX];
+  const L = qLayout(m); let r = [m.x - QR - 4, m.y - QR - 4, m.x + QR + 4, m.y + QR + 4];
+  if (L) r = [Math.min(r[0], L.x - 4), Math.min(r[1], L.y - 4), Math.max(r[2], L.x + L.w + 4), Math.max(r[3], L.y + L.h + 4)];
+  return r;
+}
+function toggleMark(pg, m) { pushUndo(pg, snapshot(pg)); m.done = !m.done; m.dt = Date.now(); if (pg === S.page) markDirty(markRect(m)); touchPage(pg);
   toast(m.k === "box" ? (m.done ? "Feladat kész" : "Feladat újra nyitott") : (m.done ? "Kérdés lezárva" : "Kérdés újra nyitott")); }
 
 const capture = e => { try { cL.setPointerCapture(e.pointerId); } catch (err) {} };
@@ -382,7 +468,8 @@ cL.addEventListener("pointerdown", e => {
     pan = { id: e.pointerId, y: e.clientY, st: $("desk").scrollTop }; capture(e); return;
   }
   if (e.pointerType === "mouse" && e.button !== 0 && e.button !== 2 && e.button !== 5) return;
-  if (act) return;
+  // tollal/egérrel egyszerre csak egy érintés lehet: ha még fut az előző, annak a vége elveszett (pl. alkalmazásváltás) – lezárjuk, hogy ne ragadjon be az írás
+  if (act) recoverAct("új érintés");
   pan = null; e.preventDefault(); capture(e); closePops();
   if (e.pointerType === "pen") penUntil = Date.now() + 800;
   const pg = S.page; if (!pg) return;
@@ -450,11 +537,23 @@ function endPointer(e) {
   if (a.kind === "draw") {
     const s = a.s; xL.clearRect(0, 0, W, H); bbox(s); s.mt = s.ts;
     const snap = snapshot(pg); pg.strokes.push(s); pushUndo(pg, snap);
-    if (pg.marks.some(m => m.done && m.k === "box")) drawInk(); else drawStroke(xI, s);
+    drawStroke(xI, s);
+    for (const m of doneRowsTouching(pg, s.bb)) markDirty([m.x, m.y - BOX, W, m.y + 2 * BOX]);
     rememberWidth(s.t === "h" ? "hi" : s.t === "g" ? "pc" : "pen", s.w);
     touchPage(pg);
   }
 }
+function recoverAct(why) {
+  if (!act) return;
+  const a = act;
+  try { if (a.kind === "draw" && a.s.p.length) { endPointer({ pointerId: a.id, pointerType: "pen" }); } else { act = null; xL.clearRect(0, 0, W, H);
+    if (a.kind === "erase" && a.changed && S.page) { pushUndo(S.page, a.snap); touchPage(S.page); }
+    if (a.kind === "move" && a.moved && S.page) { pushUndo(S.page, a.snap); touchPage(S.page); } } }
+  catch (e) { logError("helyreállítás", e && e.message); act = null; xL.clearRect(0, 0, W, H); }
+  act = null; logError("bevitel", "beragadt érintés feloldva: " + why + " (" + a.kind + ")");
+}
+cL.addEventListener("lostpointercapture", e => { if (act && act.id === e.pointerId) setTimeout(() => { if (act && act.id === e.pointerId) recoverAct("elveszett fókusz"); }, 0); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && act) recoverAct("háttérbe került"); });
 cL.addEventListener("pointerup", endPointer);
 cL.addEventListener("pointercancel", e => { if (act && act.kind === "draw" && e.pointerId === act.id) { endPointer(e); } else if (act && e.pointerId === act.id) { act = null; xL.clearRect(0, 0, W, H); } else if (pan && pan.id === e.pointerId) pan = null; });
 
@@ -465,6 +564,8 @@ function nearSeg(ax, ay, bx, by, x, y, r) {
 }
 function eraseAt(x, y) {
   const pg = S.page, R = S.set.erR; let hit = false; const out = [];
+  let reg = [x - R - 4, y - R - 4, x + R + 4, y + R + 4];
+  const grow = r => { reg = [Math.min(reg[0], r[0]), Math.min(reg[1], r[1]), Math.max(reg[2], r[2]), Math.max(reg[3], r[3])]; };
   for (const s of pg.strokes) {
     const r = R + (s.t === "h" ? s.w * 3 : s.w * .6);
     if (x < s.bb[0] - r || x > s.bb[2] + r || y < s.bb[1] - r || y > s.bb[3] + r) { out.push(s); continue; }
@@ -472,7 +573,7 @@ function eraseAt(x, y) {
     const touched = p.length === 1 ? Math.hypot(p[0][0] - x, p[0][1] - y) < r
       : p.some((q, i) => i > 0 && nearSeg(p[i - 1][0], p[i - 1][1], q[0], q[1], x, y, r));
     if (!touched) { out.push(s); continue; }
-    hit = true;
+    hit = true; grow(strokeRect(s));
     if (S.set.erMode === "part") {
       let cur = [];
       const flush = () => { if (cur.length >= 2) out.push(bbox({ ...s, id: uid(), p: cur, mt: Date.now() })); cur = []; };
@@ -484,9 +585,13 @@ function eraseAt(x, y) {
       flush();
     }
   }
-  const mk = pg.marks.filter(m => !(m.k === "box" ? (x > m.x - R && x < m.x + BOX + R && y > m.y - R && y < m.y + BOX + R) : Math.hypot(x - m.x, y - m.y) < QR + R));
-  if (mk.length !== pg.marks.length) { pg.marks = mk; hit = true; }
-  if (hit) { pg.strokes = out; act.changed = true; drawInkSoon(); }
+  const gone = pg.marks.filter(m => (m.k === "box" ? (x > m.x - R && x < m.x + BOX + R && y > m.y - R && y < m.y + BOX + R) : Math.hypot(x - m.x, y - m.y) < QR + R));
+  if (gone.length) { pg.marks = pg.marks.filter(m => !gone.includes(m)); gone.forEach(m => grow(markRect(m))); hit = true; }
+  if (hit) {
+    pg.strokes = out; act.changed = true;
+    for (const m of doneRowsTouching(pg, reg)) grow([m.x, m.y - BOX, W, m.y + 2 * BOX]);
+    markDirty(reg);
+  }
 }
 
 /* Lasszó */
@@ -529,11 +634,14 @@ function moveSel(dx, dy) {
     pg.strokes = pg.strokes.map(s => S.sel.ids.has(s.id) ? { ...s, p: s.p.map(q => q.slice()), bb: s.bb.slice() } : s);
     act.cloned = true;
   }
-  const now = Date.now();
+  const now = Date.now(), before = S.sel.bb.slice();
   for (const s of pg.strokes) if (S.sel.ids.has(s.id)) { for (const q of s.p) { q[0] += dx; q[1] += dy; } s.bb[0] += dx; s.bb[2] += dx; s.bb[1] += dy; s.bb[3] += dy; s.mt = now; }
   for (const m of pg.marks) if (S.sel.mids.has(m.id)) { m.x += dx; m.y += dy; }
   S.sel.bb = [S.sel.bb[0] + dx, S.sel.bb[1] + dy, S.sel.bb[2] + dx, S.sel.bb[3] + dy];
-  act.moved = true; drawInkSoon(); placeSel();
+  act.moved = true;
+  const nb = S.sel.bb, pad = 30; let r = [Math.min(before[0], nb[0]) - pad, Math.min(before[1], nb[1]) - pad, Math.max(before[2], nb[2]) + pad, Math.max(before[3], nb[3]) + pad];
+  for (const m of doneRowsTouching(pg, r)) r = [Math.min(r[0], m.x - 4), Math.min(r[1], m.y - BOX), W, Math.max(r[3], m.y + 2 * BOX)];
+  markDirty(r); placeSel();
 }
 $("sDel").onclick = () => { const pg = S.page; pushUndo(pg, snapshot(pg));
   pg.strokes = pg.strokes.filter(s => !S.sel.ids.has(s.id)); pg.marks = pg.marks.filter(m => !S.sel.mids.has(m.id));
@@ -1247,7 +1355,7 @@ const Sync = {
         const f = this.ids.files[id] || {};
         const data = { ...serializePage(pg), notebookName: nb.name, pageNo: n };
         f.json = await this.upload(f.json, base + ".json", "application/json", JSON.stringify(data), this.ids.lapok, { jf: "page", pageId: id });
-        const c = await renderPageCanvas(pg, 1240); const img = await new Promise(r => c.toBlob(r, "image/jpeg", .82));
+        const c = await syncImage(pg); const img = await new Promise(r => c.toBlob(r, "image/jpeg", .82));
         f.img = await this.upload(f.img, base + ".jpg", "image/jpeg", img, this.ids.lapok, { jf: "pageimg", pageId: id });
         this.ids.files[id] = f; this.ids.pushed[id] = pg.updated; await this.saveIds();
       }
@@ -1310,6 +1418,13 @@ function settingsDialog() {
     <strong>S Pen gomb teszt</strong>
     <p>Bekapcsolva a képernyő alján kiírja, mit jelez a toll. Írj a lapra lenyomott oldalsó gombbal, és küldd el a kiírt sort.</p>
     <div class="seg"><button class="tb small" id="dbgBtn"></button></div>
+    <strong>Hibanapló</strong>
+    <p id="errInfo"></p>
+    <div class="seg"><button class="tb small" id="errShow">Megnézem</button><button class="tb small" id="errClear">Törlés</button></div>
+    <pre id="errText" class="errlog" hidden></pre>
+    <strong>Program frissítése</strong>
+    <p>Ha az app furcsán viselkedik: újratölti a programfájlokat. A jegyzeteid és beállításaid nem törlődnek.</p>
+    <div class="seg"><button class="tb small" id="hardReload">Program frissítése most</button></div>
     <p style="font-size:12px">Verzió: ${APP_VERSION}</p>`;
   const cid = body.querySelector("#cid"); cid.value = S.set.clientId || "";
   const markRail = () => { body.querySelector("#stR").setAttribute("aria-pressed", String(S.set.rail === "right")); body.querySelector("#stL").setAttribute("aria-pressed", String(S.set.rail === "left")); };
@@ -1329,7 +1444,13 @@ function settingsDialog() {
   const dbgBtn = body.querySelector("#dbgBtn");
   const markDbg = () => { dbgBtn.textContent = penDbg ? "Tolladatok kijelzése: BE" : "Tolladatok kijelzése: KI"; dbgBtn.setAttribute("aria-pressed", String(penDbg)); };
   dbgBtn.onclick = () => { penDbg = !penDbg; if (!penDbg) $("penDbg").hidden = true; markDbg(); };
-  markRail(); markDrive(); markDbg();
+  const errs = () => { try { return JSON.parse(localStorage.getItem(ERRLOG) || "[]"); } catch (_) { return []; } };
+  const markErr = () => { const l = errs(); body.querySelector("#errInfo").textContent = l.length ? l.length + " bejegyzés, a legutóbbi: " + new Date(l[0].t).toLocaleString("hu-HU") : "Nincs rögzített hiba."; };
+  body.querySelector("#errShow").onclick = () => { const pre = body.querySelector("#errText"), l = errs();
+    pre.textContent = l.map(e => `${new Date(e.t).toLocaleString("hu-HU")} · ${e.v} · ${e.k}\n${e.m}`).join("\n\n") || "Nincs rögzített hiba."; pre.hidden = !pre.hidden; };
+  body.querySelector("#errClear").onclick = () => { try { localStorage.removeItem(ERRLOG); } catch (_) {} markErr(); body.querySelector("#errText").hidden = true; };
+  body.querySelector("#hardReload").onclick = () => hardReload();
+  markRail(); markDrive(); markDbg(); markErr();
   dialog("Beállítások és szinkron", body, [["Kész", "pri"]]);
 }
 $("mSettings").onclick = settingsDialog;
@@ -1371,6 +1492,22 @@ let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(lay
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawPaper);
 addEventListener("pagehide", () => { if (S.page) persistPage(S.page, true); });
 
+/* Programfájlok frissítése: a service worker és a gyorsítótár törlése, majd újratöltés – az IndexedDB-ben lévő jegyzetek maradnak */
+async function hardReload() {
+  try { if (S.page) await persistPage(S.page, true); } catch (_) {}
+  try { const regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : []; await Promise.all(regs.map(r => r.unregister())); } catch (_) {}
+  try { if (window.caches) { const k = await caches.keys(); await Promise.all(k.map(n => caches.delete(n))); } } catch (_) {}
+  location.reload();
+}
+function fatal(e) {
+  logError("indulás", e && (e.stack || e.message) || e);
+  const d = document.createElement("div"); d.className = "fatal";
+  d.innerHTML = `<div class="fbox"><h3>Az app nem tudott elindulni</h3><p>A jegyzeteid megvannak ezen az eszközön (és a Drive-on, ha a szinkron be volt kapcsolva). Próbáld a programfájlok frissítését.</p>
+    <pre></pre><div class="acts"><button class="btn" id="fRe">Újratöltés</button><button class="btn pri" id="fHard">Program frissítése</button></div></div>`;
+  d.querySelector("pre").textContent = String(e && (e.message || e));
+  document.body.append(d); d.querySelector("#fRe").onclick = () => location.reload(); d.querySelector("#fHard").onclick = () => hardReload();
+}
+
 /* ================= Indulás ================= */
 async function start() {
   try { await DB.open(); } catch (e) { toast("A tároló nem nyitható meg: " + e.message); return; }
@@ -1390,6 +1527,6 @@ async function start() {
     }).catch(console.error);
   }
 }
-start();
+start().catch(fatal);
 window.__jf = { S, Sync, W, H, MM }; // hibakereséshez
 })();
