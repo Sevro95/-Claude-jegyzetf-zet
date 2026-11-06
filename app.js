@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "3.0.1";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -285,7 +285,7 @@ function drawPaper() {
   const x = xP; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, cP.width, cP.height);
   const pg = S.page; if (!pg) return;
   setViewT(x); const ph = pgH(pg), pc = paperColor();
-  x.save(); x.shadowColor = "rgba(0,0,0,.22)"; x.shadowBlur = 14 * DPR; x.shadowOffsetY = 2 * DPR; x.fillStyle = pc; x.fillRect(0, 0, W, ph); x.restore();
+  x.save(); x.shadowColor = "rgba(200,107,255,.45)"; x.shadowBlur = 22 * DPR; x.shadowOffsetY = 0; x.fillStyle = pc; x.fillRect(0, 0, W, ph); x.restore();
   x.save(); x.beginPath(); x.rect(0, 0, W, ph); x.clip();
   paintPaper(x, pg, 1 / (V.K * DPR), pc, pageNoOf(pg), visRect(), tile && tile.key === viewKey() ? tile : null);
   x.restore();
@@ -717,7 +717,7 @@ cL.addEventListener("pointermove", e => {
   }
   if (act.kind === "erase") { for (const ev of evs) { const [x, y] = ptOf(ev); eraseAt(x, y); } return; }
   if (act.kind === "lasso") { const L = act.pts; for (const ev of evs) L.push(ptOf(ev));
-    clearLive(); xL.save(); xL.setLineDash([6, 5]); xL.strokeStyle = "#6B2FA0"; xL.lineWidth = 2 / V.K; xL.beginPath();
+    clearLive(); xL.save(); xL.setLineDash([6, 5]); xL.strokeStyle = "#00B8D4"; xL.lineWidth = 2 / V.K; xL.beginPath();
     xL.moveTo(L[0][0], L[0][1]); for (const q of L) xL.lineTo(q[0], q[1]); xL.stroke(); xL.restore(); return; }
   if (act.kind === "move") { const [x, y] = ptOf(e); moveSel(x - act.lx, y - act.ly); act.lx = x; act.ly = y; return; }
   if (act.kind === "nmove" || act.kind === "nsize") {
