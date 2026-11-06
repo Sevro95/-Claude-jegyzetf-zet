@@ -1,6 +1,6 @@
 {
-  "name": "Tervezői jegyzetfüzet",
-  "short_name": "Jegyzetfüzet",
+  "name": "CyberNote",
+  "short_name": "CyberNote",
   "description": "Kézírásos projektjegyzetek S Pennel – feladatok, kérdések, Google Drive szinkron.",
   "lang": "hu",
   "start_url": "./",

@@ -1,11 +1,11 @@
-/* Tervezői jegyzetfüzet 3 – PWA
+/* CyberNote 3 – PWA (korábban: Tervezői jegyzetfüzet)
  * Lap: szélesség 1000 logikai egység; A4-nél 1 mm = 4,762 egység. A lap magassága laponként (importált PDF-nél az oldal arányához igazodik).
  * Felépítés: füzet (projekt) → szakasz → lap. Tárolás: IndexedDB (offline), szinkron: Google Drive (drive.file hatókör).
  * Rétegek: papír + háttér (PDF/kép) → lap írása és jelölők → öntapadós jegyzetcetlik (saját írásréteggel) → élő vonal.
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.0.1";
+const APP_VERSION = "3.0.2";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1258,7 +1258,7 @@ function updTitle() {
   const pg = S.page; if (!pg) return; const n = pageNoOf(pg), tot = S.sec ? S.sec.pages.length : 0;
   $("tPage").textContent = pageLabel(pg);
   $("tWhere").textContent = (S.nb ? S.nb.name : "") + " › " + (S.sec ? S.sec.name : "") + " · " + n + ". lap";
-  document.title = pageLabel(pg) + " – " + (S.nb ? S.nb.name : "") + " – Tervezői jegyzetfüzet";
+  document.title = pageLabel(pg) + " – " + (S.nb ? S.nb.name : "") + " – CyberNote";
   $("bPrev").disabled = n <= 1; $("bNext").disabled = n >= tot;
 }
 const go = d => { const i = S.sec.pages.indexOf(S.page.id) + d; if (i >= 0 && i < S.sec.pages.length) openPage(S.sec.pages[i]); };
@@ -1640,7 +1640,7 @@ async function buildPdf(ids, title, progress) {
   const d = new Date(), pd = "D:" + d.getFullYear() + [d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(v => String(v).padStart(2, "0")).join("");
   offs[1] = len; push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
   offs[2] = len; push(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${n} >>\nendobj\n`);
-  offs[3] = len; push(`3 0 obj\n<< /Title ${pdfStr(title)} /Creator ${pdfStr("Tervezői jegyzetfüzet " + APP_VERSION)} /CreationDate (${pd}) >>\nendobj\n`);
+  offs[3] = len; push(`3 0 obj\n<< /Title ${pdfStr(title)} /Creator ${pdfStr("CyberNote " + APP_VERSION)} /CreationDate (${pd}) >>\nendobj\n`);
   const size = 4 + 3 * n, xref = len;
   let x = `xref\n0 ${size}\n0000000000 65535 f \n`;
   for (let i = 1; i < size; i++) x += String(offs[i]).padStart(10, "0") + " 00000 n \n";
@@ -1695,7 +1695,7 @@ async function buildDocx(ids, title, progress) {
   files.unshift(
     { name: "[Content_Types].xml", data: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>' },
     { name: "_rels/.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>' },
-    { name: "docProps/core.xml", data: X + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xesc(title)}</dc:title><dc:creator>Tervezői jegyzetfüzet</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>` },
+    { name: "docProps/core.xml", data: X + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xesc(title)}</dc:title><dc:creator>CyberNote</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>` },
     { name: "word/document.xml", data: doc },
     { name: "word/_rels/document.xml.rels", data: X + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join("")}</Relationships>` });
   return zipStore(files);
@@ -1908,7 +1908,7 @@ const Sync = {
       const lastInk = Math.max(pg.created, ...pg.strokes.map(s => s.mt || s.ts || 0), ...ns.map(s => s.mt || s.ts || 0), ...(pg.notes || []).map(n => n.mt || n.ts || 0), ...pg.marks.map(m => Math.max(m.ts || 0, m.dt || 0)));
       pages[id] = { nb: nb.id, notebookName: nb.name, sectionId: sec.id, sectionName: sec.name, pageNo: i + 1, title: pg.title || "", created: pg.created, updated: pg.updated, lastInk,
         notes: (pg.notes || []).length, json: f.json, img: f.img, bgFile: pg.bg ? this.ids.bgs[pg.bg.id] : undefined, pdfFile: pg.bg && pg.bg.pdf ? this.ids.pdfs[pg.bg.pdf] : undefined }; });
-    return { v: 2, app: "Tervezői jegyzetfüzet " + APP_VERSION, updated: Date.now(), timezone: "Europe/Budapest",
+    return { v: 2, app: "CyberNote " + APP_VERSION, updated: Date.now(), timezone: "Europe/Budapest",
       notebooks: S.notebooks.map(n => ({ id: n.id, name: n.name, color: n.color, paper: n.paper, created: n.created, updated: n.updated,
         sections: n.sections.map(s => ({ id: s.id, name: s.name, color: s.color, created: s.created, pages: s.pages })), pages: nbPages(n), contacts: n.contacts || [] })),
       pages, deleted: S.deleted };
@@ -1947,7 +1947,7 @@ function settingsDialog() {
   const body = document.createElement("div"); body.className = "dlgbody";
   body.innerHTML = `
     <strong>Google Drive szinkron</strong>
-    <p>A lapok a Drive „Tervezői jegyzetfüzet” mappájába kerülnek. Ebből készül a napi összefoglaló, és így a lapok más eszközön is elérhetők.</p>
+    <p>A lapok a Drive „Tervezői jegyzetfüzet” mappájába kerülnek (a mappa neve a meglévő szinkron miatt marad). Ebből készül a napi összefoglaló, és így a lapok más eszközön is elérhetők.</p>
     <label for="cid">OAuth kliensazonosító (Client ID)</label>
     <input type="text" id="cid" placeholder="….apps.googleusercontent.com" autocomplete="off" spellcheck="false">
     <p>Engedélyezett JavaScript-forrásnak ezt add meg a Google Cloudban: <code>${esc(location.origin)}</code></p>

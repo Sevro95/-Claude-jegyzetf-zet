@@ -1,6 +1,6 @@
-// Tervezői jegyzetfüzet – service worker (offline működés)
-const VERSION = "jf-v3.0.1";
-const SHELL = ["./", "./index.html", "./app.css?v=3.0.1", "./app.js?v=3.0.1", "./manifest.webmanifest",
+// CyberNote – service worker (offline működés)
+const VERSION = "jf-v3.0.2";
+const SHELL = ["./", "./index.html", "./app.css?v=3.0.2", "./app.js?v=3.0.2", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png"];
 const LIBS = "jf-libs-v1";
 

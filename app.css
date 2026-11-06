@@ -343,3 +343,6 @@ body.ribbon-off .tab[aria-selected="true"]{background:transparent;color:#fff}
 .spin{border-color:var(--line);border-top-color:var(--neon2);box-shadow:0 0 10px rgba(0,229,255,.4)}
 .linkbtn{color:var(--neon2)}
 .ctline{color:var(--neon2)}
+.brand{font-family:var(--fx);font-weight:600;font-size:15px;letter-spacing:.08em;text-transform:uppercase;padding:0 10px 0 6px;white-space:nowrap;color:var(--neon2);text-shadow:0 0 8px rgba(0,229,255,.7)}
+.brand b{color:var(--pink);font-weight:600;text-shadow:0 0 8px rgba(255,46,151,.75)}
+@media (max-width:700px){.brand{display:none}}
