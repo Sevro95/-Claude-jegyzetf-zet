@@ -1,6 +1,6 @@
 // CyberNote – service worker (offline működés)
-const VERSION = "jf-v3.1.0";
-const SHELL = ["./", "./index.html", "./app.css?v=3.1.0", "./app.js?v=3.1.0", "./manifest.webmanifest",
+const VERSION = "jf-v3.2.0";
+const SHELL = ["./", "./index.html", "./app.css?v=3.2.0", "./app.js?v=3.2.0", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png"];
 const LIBS = "jf-libs-v1";
 

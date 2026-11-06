@@ -360,3 +360,15 @@ body.ribbon-off .tab[aria-selected="true"]{background:transparent;color:#fff}
 .shot .d{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .shot .badge{position:absolute;top:10px;left:10px}
 .shot .edit{position:absolute;top:8px;right:8px;width:30px;min-width:30px;height:30px;padding:0;background:rgba(10,6,20,.75);color:#fff;border-radius:4px}
+/* PDF-ek */
+.pglist.pdflist{display:flex;flex-direction:column;gap:2px}
+.pdfdoc{display:flex;align-items:center;margin-top:6px;border:1px solid rgba(200,107,255,.28);background:rgba(200,107,255,.06)}
+.pdfdoc[aria-current="true"]{border-color:var(--accent)}
+.pdfdoc .open{flex:1;min-width:0;display:grid;grid-template-columns:22px 1fr;column-gap:8px;align-items:center;padding:7px 8px;text-align:left}
+.pdfdoc .galicon{grid-row:span 2}
+.pdfdoc .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pdfdoc .d{font-size:12px;color:var(--muted)}
+.pdfdoc .badge{margin-right:6px}
+.pgrow.pdfpg{margin-left:14px}
+.pgrow.pdfpg .open{flex-direction:row;align-items:center;gap:10px;min-height:0;padding:4px 6px}
+.pgrow.pdfpg img{width:34px;height:46px;object-fit:cover;object-position:top;background:#fff;border-radius:2px;flex:none}
