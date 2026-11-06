@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.3.0";
+const APP_VERSION = "3.4.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1086,8 +1086,8 @@ function markViewBtns() {
 $("vNotes").onclick = () => { S.set.notesOn = !S.set.notesOn; saveSettings(); markViewBtns(); if (!S.set.notesOn) hideNoteBar(); drawInk(); toast(S.set.notesOn ? "Jegyzetcetlik látszanak" : "Jegyzetcetlik elrejtve (a lapon megmaradnak)"); };
 
 /* ================= Panelek és menüszalag ================= */
-const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts"];
-const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts" };
+const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu"];
+const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts", nbMenu: "nbBtn" };
 function closePanels(except) {
   for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
 }
@@ -1127,6 +1127,7 @@ $("bRibbon").onclick = () => { S.set.ribbonOff = !S.set.ribbonOff; closePanels()
 /* bal oldali ablaktáblák: széles kijelzőn a lap mellett, keskenyen a lap fölé nyílnak */
 let narrow = false, navVis = true, pagesVis = true;
 function applyPanes(noLayout) {
+  navVis = false; pagesVis = false;
   document.body.classList.toggle("narrow", narrow);
   document.body.classList.toggle("nav-off", !navVis); document.body.classList.toggle("pages-off", !pagesVis);
   $("scrim").hidden = !(narrow && (navVis || pagesVis));
@@ -1507,6 +1508,89 @@ function renderPageList() {
   });
   const cur = box.querySelector('[aria-current="true"]'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
 }
+/* ================= Dosszié: füzetborító, szakaszfülek, lapsor ================= */
+function neon(c) { // a szakasz színe LED-csíknak: telített, világos változat
+  let [r, g, b] = hexToRgb(c || "#C86BFF").map(v => v / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, d = mx - mn;
+  if (d) { h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  const s = d ? Math.max(.85, d / (1 - Math.abs(mx + mn - 1))) : 0, l = d ? .64 : .78;
+  const C = (1 - Math.abs(2 * l - 1)) * s, X = C * (1 - Math.abs((h / 60) % 2 - 1)), m = l - C / 2;
+  const [a, bb, cc] = h < 60 ? [C, X, 0] : h < 120 ? [X, C, 0] : h < 180 ? [0, C, X] : h < 240 ? [0, X, C] : h < 300 ? [X, 0, C] : [C, 0, X];
+  return rgbToHex((a + m) * 255, (bb + m) * 255, (cc + m) * 255);
+}
+const rgba = (h, a) => { const [r, g, b] = hexToRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const secLed = s => s.gal ? "#7AA2FF" : s.pdf ? "#D18BFF" : neon(s.color);
+async function goSection(nb, sec) {
+  if (S.nb !== nb) { S.nb = nb; await loadNotebookPages(nb); }
+  if (sec.gal && !sec.pages.some(p => S.pages.has(p))) { galEmpty(nb); return; }
+  if (sec.pdf && !sec.pages.some(p => S.pages.has(p))) { pdfEmpty(nb); return; }
+  await openSection(sec);
+}
+function renderDossier() {
+  const nb = S.nb; if (!nb) return;
+  $("nbName").textContent = nb.name; const nc = neon(nb.color); $("nbChip").style.background = nc; $("nbChip").style.boxShadow = "0 0 8px " + nc;
+  const box = $("secTabs"); box.textContent = "";
+  const secs = nb.sections, si = Math.max(0, secs.indexOf(S.sec)), many = secs.length > 9;
+  secs.forEach((sec, i) => {
+    const act = sec === S.sec, c = secLed(sec), dist = Math.abs(i - si), lift = act ? 0 : Math.min(8, 2 + dist * 2);
+    const b = el("button", "stab" + (act ? " on" : "") + (many ? " many" : "") + (special(sec) ? " sp" : "")); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(act));
+    b.style.height = (act ? 45 : 40 - lift) + "px"; b.style.zIndex = act ? 50 : 40 - dist;
+    b.style.setProperty("--c", c); b.style.setProperty("--cg", rgba(c, act ? .9 : .5)); b.style.setProperty("--cl", rgba(c, act ? 1 : .8));
+    const led = el("span", "led"), fill = el("span", "fill");
+    if (sec.gal || sec.pdf) { const ic = el("span", "sic"); ic.innerHTML = sec.gal ? ICON_CAM : ICON_PDF; fill.append(ic); }
+    fill.append(el("span", "nm", sec.name));
+    const oc = secOpenCount(sec); if (oc) { const bd = el("span", "sbadge", String(oc)); fill.append(bd); }
+    const cnt = sec.gal ? sec.pages.length : sec.pdf ? pdfDocsOf(sec).length : 0;
+    b.title = sec.name + (cnt ? " (" + cnt + ")" : "") + (act && !special(sec) ? " – koppints újra a beállításokhoz" : "");
+    led.append(fill); b.append(led);
+    b.onclick = () => { if (act) { if (!special(sec)) sectionDialog(nb, sec); return; } goSection(nb, sec); };
+    box.append(b);
+  });
+  const add = el("button", "stab add"); add.setAttribute("aria-label", "Új szakasz"); add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+  add.onclick = () => sectionDialog(nb, null);
+  // az „Új szakasz” a jegyzetszakaszok után, a Képtár és a PDF-ek előtt
+  const firstSpecial = [...box.children].find((x, i) => special(secs[i]));
+  box.insertBefore(add, firstSpecial || null);
+  const ac = S.sec ? secLed(S.sec) : "#C86BFF"; $("dosBand").style.setProperty("--c", ac); $("dosBand").style.setProperty("--cg", rgba(ac, .55));
+  $("pageRow").style.setProperty("--c", ac);
+  const on = box.querySelector(".stab.on"); if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+function renderPageRow() {
+  const sec = S.sec; if (!sec) return; const box = $("pgTabs"); box.textContent = "";
+  $("prLabel").textContent = sec.gal ? "KÉPEK" : sec.pdf ? "PDF" : "LAPOK"; $("prAddTxt").textContent = sec.gal ? "Kép" : sec.pdf ? "PDF" : "Lap";
+  const items = [];
+  if (sec.pdf) for (const pages of pdfDocsOf(sec)) pages.forEach((pg, i) => items.push({ pg, no: (pg.bg && pg.bg.pn ? pg.bg.pn : i + 1) + ".", t: docName(pages[0]) }));
+  else sec.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg) items.push({ pg, no: (i + 1) + ".", t: pageLabel(pg) }); });
+  for (const it of items) {
+    const cur = S.page === it.pg, b = el("button", "ptab" + (cur ? " on" : ""));
+    b.setAttribute("aria-current", String(cur)); b.title = it.t + (cur ? " – koppints újra a lap adataihoz" : "");
+    b.append(el("span", "no", it.no), el("span", "t", it.t));
+    if (openCountOf(it.pg)) b.append(el("span", "dot"));
+    b.onclick = () => cur ? pageDialog(it.pg) : openPage(it.pg.id);
+    box.append(b);
+  }
+  const on = box.querySelector(".ptab.on"); if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+$("prAdd").onclick = () => $("pgAdd").click();
+$("nbBtn").onclick = () => {
+  const m = $("nbMenu"); m.textContent = "";
+  m.append(el("div", "mhead", "Füzetek"));
+  for (const nb of S.notebooks) {
+    const b = el("button", "mitem nbitem" + (nb === S.nb ? " cur" : "")); const ch = el("span", "chip"); const c = neon(nb.color); ch.style.background = c; ch.style.boxShadow = "0 0 6px " + c;
+    const oc = nbOpenCount(nb);
+    b.append(ch, el("span", "nm", nb.name)); if (oc) b.append(badgeEl(oc));
+    b.onclick = async () => { closePanels(); await openNotebook(nb.id); };
+    m.append(b);
+  }
+  m.append(el("div", "mhr"));
+  const set = el("button", "mitem"); set.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>';
+  set.append(el("span", null, "Füzet beállításai…")); set.onclick = () => { closePanels(); notebookDialog(S.nb); };
+  const nw = el("button", "mitem"); nw.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+  nw.append(el("span", null, "Új füzet")); nw.onclick = () => { closePanels(); notebookDialog(null); };
+  m.append(set, nw);
+  openPanel("nbMenu", $("nbBtn"));
+};
+{ const rt = renderTree, rp = renderPageList; renderTree = function () { rt(); renderDossier(); }; renderPageList = function () { rp(); renderPageRow(); }; }
+
 /* ================= Képtár (képernyőképek projektenként) ================= */
 const ICON_CAM = '<svg viewBox="0 0 24 24"><path d="M3.5 8.5h3.2L8.6 6h6.8l1.9 2.5h3.2v10.5H3.5z"/><circle cx="12" cy="13.5" r="3.4"/></svg>';
 const SHOT_STRIP = 45 * MM; // üres sáv a kép alatt a megjegyzéseknek

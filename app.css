@@ -382,3 +382,66 @@ body.ribbon-off .tab[aria-selected="true"]{background:transparent;color:#fff}
 .stkbox{position:absolute;border:2px dashed var(--neon2);pointer-events:none;box-shadow:0 0 12px rgba(0,229,255,.45)}
 .stkbox::after{content:"";position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--neon2);box-shadow:0 0 8px var(--neon2)}
 .kname{color:var(--neon2);font-family:var(--fx);font-size:13px;padding:0 10px;white-space:nowrap;letter-spacing:.04em}
+
+/* ===== Dosszié (3.4) – a bal oldali fa helyett ===== */
+#nav,#pagesCol,#scrim{display:none!important}
+/* fejléc ~10%-kal kisebb */
+#titlebar{height:36px}
+#tabs{height:32px}
+.tab{min-height:30px;font-size:12px;padding:0 13px}
+#ribbon{height:62px}
+.rb .ic{height:26px}
+.rb .ic svg{width:21px;height:21px}
+.rb .lb,.rcol .lb{font-size:10.5px}
+.rb.stk .ic{height:30px}.rb.stk img{max-height:30px}
+.carbon{background-color:#111015;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.045) 0 2px,transparent 2px 5px),repeating-linear-gradient(-45deg,rgba(0,0,0,.5) 0 2px,transparent 2px 5px)}
+#dossier{position:relative;height:66px;background:#0B0812;border-top:1px solid #2D2246;flex:none}
+#dossier .cover{position:absolute;left:0;top:0;bottom:0;width:236px;clip-path:polygon(0 0,92% 0,100% 100%,0 100%);z-index:3;display:flex;align-items:center;padding:0 24px 0 max(12px,env(safe-area-inset-left,0px));box-sizing:border-box}
+#nbBtn{flex:1;min-width:0;height:46px;border:1px solid rgba(0,229,255,.45);background:rgba(13,9,21,.72);display:flex;align-items:center;gap:10px;padding:0 10px;text-align:left;justify-content:flex-start;border-radius:0;
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
+#nbBtn:hover,#nbBtn[aria-expanded="true"]{background:rgba(0,229,255,.1);box-shadow:inset 0 0 12px rgba(0,229,255,.25)}
+#nbBtn svg{width:18px;height:18px;stroke:var(--neon2);stroke-width:2}
+.chip{width:12px;height:28px;flex:none;display:block}
+.nbtxt{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.2}
+.nbtxt .k{font-family:var(--fx);font-size:10px;letter-spacing:.14em;color:var(--neon2)}
+.nbtxt .v{font-family:var(--fx);font-weight:600;font-size:14.5px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sectabs{position:absolute;left:222px;right:10px;bottom:11px;height:48px;display:flex;align-items:flex-end;z-index:2;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.sectabs::-webkit-scrollbar{display:none}
+.stab{flex:0 1 158px;min-width:48px;max-width:190px;margin-left:-10px;padding:0;border:0;border-radius:0;background:transparent;display:flex;align-items:stretch;position:relative;min-height:0;
+  filter:drop-shadow(0 0 4px var(--cg))}
+.stab:first-child{margin-left:0}
+.stab.on{flex:0 0 auto;min-width:120px;filter:drop-shadow(0 0 8px var(--cg))}
+.stab .led{flex:1;min-width:0;display:flex;padding:1.5px 1.5px 0;background:var(--cl);clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 100%,0 100%)}
+.stab.on .led{padding:2px 2px 0}
+.stab .fill{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 22px;clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 100%,0 100%);
+  background:linear-gradient(180deg,#22183A,#160F25);color:#C9BFEA;font-family:var(--fx);font-weight:600;font-size:12.5px;letter-spacing:.03em}
+.stab.many:not(.on) .fill{padding:0 14px}
+.stab.on .fill{background:linear-gradient(180deg,#2A1D44,#1C142D);color:#fff;font-weight:700;text-shadow:0 0 8px var(--c)}
+.stab:hover .fill{color:#fff}
+.stab .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stab .sic{display:inline-flex;flex:none}.stab .sic svg{width:15px;height:15px;stroke:var(--c);stroke-width:1.8}
+.sbadge{min-width:20px;height:18px;border-radius:9px;background:#0D0915;border:1px solid var(--cl);color:var(--c);font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;flex:none;text-shadow:none}
+.stab.add{flex:0 0 42px;min-width:42px;height:30px;margin-left:6px;border:1px dashed rgba(0,229,255,.6);background:rgba(0,229,255,.06);color:var(--neon2);align-items:center;justify-content:center;
+  clip-path:polygon(10px 0,calc(100% - 10px) 0,100% 100%,0 100%);filter:none}
+.stab.add svg{width:18px;height:18px}
+.stab.add + .stab{margin-left:10px}
+#dosBand{position:absolute;left:0;right:0;bottom:0;height:11px;background:#1C142D;border-top:2px solid var(--c,#C86BFF);box-shadow:0 -2px 12px var(--cg,rgba(200,107,255,.5));box-sizing:border-box}
+#pageRow{height:30px;flex:none;display:flex;align-items:stretch;gap:3px;padding:0 10px 0 max(14px,env(safe-area-inset-left,0px));background:linear-gradient(180deg,#1C142D,#140E21);border-bottom:1px solid #2A2042}
+.prlabel{display:flex;align-items:center;font-family:var(--fx);font-size:10px;letter-spacing:.14em;color:var(--c,#C86BFF);padding-right:6px;flex:none}
+.pgtabs{flex:1;min-width:0;display:flex;align-items:stretch;gap:3px;overflow-x:auto;scrollbar-width:none}
+.pgtabs::-webkit-scrollbar{display:none}
+.ptab{flex:0 1 200px;min-width:80px;min-height:0;border:0;border-radius:0;display:flex;align-items:center;justify-content:flex-start;gap:6px;padding:0 12px;font-size:12px;font-weight:500;color:#C9BFEA;
+  clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,8px 100%);background:color-mix(in srgb,var(--c,#C86BFF) 8%,transparent)}
+.ptab:hover{color:#fff;background:color-mix(in srgb,var(--c,#C86BFF) 16%,transparent)}
+.ptab.on{color:#fff;font-weight:600;background:linear-gradient(180deg,color-mix(in srgb,var(--c,#C86BFF) 38%,transparent),color-mix(in srgb,var(--c,#C86BFF) 14%,transparent));box-shadow:inset 0 -2px 0 var(--c,#C86BFF)}
+.ptab .no{font-family:var(--fx);font-size:11px;font-weight:700;opacity:.8;flex:none}
+.ptab .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptab .dot{width:6px;height:6px;border-radius:50%;background:var(--pink);box-shadow:0 0 6px var(--pink);flex:none}
+.pradd{flex:none;align-self:center;height:22px;min-height:0;border:1px dashed rgba(0,229,255,.6);background:rgba(0,229,255,.06);color:var(--neon2);border-radius:0;display:flex;align-items:center;gap:4px;padding:0 10px;font-family:var(--fx);font-size:11.5px;letter-spacing:.04em;margin-left:4px}
+.pradd svg{width:14px;height:14px;stroke-width:2}
+.nbitem .chip{width:10px;height:22px}
+.nbitem .nm{flex:1;text-align:left}
+.nbitem.cur{background:rgba(0,229,255,.1);box-shadow:inset 3px 0 0 var(--neon2)}
+body.ribbon-off #dossier{border-top-color:transparent}
+@media (max-width:700px){#dossier .cover{width:170px}.sectabs{left:158px}.nbtxt .k{display:none}}
+.stab.sp.many:not(.on){flex:0 0 52px;min-width:52px}.stab.sp.many:not(.on) .nm,.stab.sp.many:not(.on) .sbadge{display:none}
