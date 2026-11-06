@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.0.2";
+const APP_VERSION = "3.0.3";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1741,6 +1741,7 @@ const Sync = {
     this.ids = (await DB.get("kv", "drive")) || { root: null, lapok: null, index: null, open: null, summary: null, files: {}, bgs: {}, pushed: {} };
     this.ids.pdfs = this.ids.pdfs || {};
     try { const t = JSON.parse(localStorage.getItem("jf_tok") || "null"); if (t && t.exp > Date.now() + 60000) { this.token = t.tok; this.exp = t.exp; } } catch (e) {}
+    this.fromRedirect();
     this.status();
     addEventListener("online", () => this.schedule(1000));
     addEventListener("offline", () => this.status());
@@ -1762,8 +1763,39 @@ const Sync = {
   },
   schedule(ms) { if (!S.set.driveOn || !S.set.clientId) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), ms); },
   async gis() { if (!(window.google && google.accounts && google.accounts.oauth2)) await loadScript("https://accounts.google.com/gsi/client"); },
+  /* Bejelentkezés ugyanazon a lapon (felugró ablak nélkül) – ott, ahol a böngésző a felugró ablakos módot megakasztja (popup_closed) */
+  redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ""); },
+  redirect() {
+    try { if (S.page) persistPage(S.page, true); } catch (e) {}
+    const st = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try { localStorage.setItem("jf_oauth_state", st); } catch (e) {}
+    const q = new URLSearchParams({ client_id: S.set.clientId, redirect_uri: this.redirectUri(), response_type: "token",
+      scope: "https://www.googleapis.com/auth/drive.file", include_granted_scopes: "true", state: st });
+    location.assign("https://accounts.google.com/o/oauth2/v2/auth?" + q);
+    return new Promise(() => {});
+  },
+  fromRedirect() {
+    const h = location.hash; if (!h || !/(access_token|error)=/.test(h)) return;
+    const p = new URLSearchParams(h.slice(1)); let want = null;
+    try { want = localStorage.getItem("jf_oauth_state"); localStorage.removeItem("jf_oauth_state"); } catch (e) {}
+    history.replaceState(null, "", location.pathname + location.search);
+    if (p.get("error")) { setTimeout(() => toast("A bejelentkezés nem sikerült: " + p.get("error")), 800); return; }
+    if (!want || p.get("state") !== want) { setTimeout(() => toast("A bejelentkezés nem sikerült (ellenőrző kód eltér) – próbáld újra."), 800); return; }
+    this.token = p.get("access_token"); this.exp = Date.now() + (+p.get("expires_in") || 3600) * 1000; this.needAuth = false;
+    try { localStorage.setItem("jf_tok", JSON.stringify({ tok: this.token, exp: this.exp })); } catch (e) {}
+    S.set.driveOn = true; S.set.authRedirect = true; saveSettings();
+    setTimeout(() => toast("Bejelentkezve – szinkron indul"), 800);
+  },
   async auth(interactive) {
     if (this.token && Date.now() < this.exp - 60000) return this.token;
+    if (S.set.authRedirect) { if (interactive) return this.redirect(); throw Object.assign(new Error("Bejelentkezés szükséges"), { auth: true }); }
+    try { return await this.authPopup(interactive); }
+    catch (e) {
+      if (interactive && /popup_closed|popup_failed_to_open/.test(e.message)) { S.set.authRedirect = true; saveSettings(); return this.redirect(); }
+      throw e;
+    }
+  },
+  async authPopup(interactive) {
     await this.gis();
     return new Promise((res, rej) => {
       const tc = google.accounts.oauth2.initTokenClient({
@@ -1931,7 +1963,9 @@ document.addEventListener("click", e => {
   authing = true;
   Sync.auth(false).then(() => { Sync.needAuth = false; Sync.schedule(500); }).catch(() => { Sync.needAuth = true; Sync.status(); }).finally(() => { authing = false; });
 }, true);
-$("sdot").onclick = () => { if (!S.set.driveOn || !S.set.clientId) { settingsDialog(); return; } toast(Sync.msg || "Szinkron…"); Sync.run(true); };
+$("sdot").onclick = () => { if (!S.set.driveOn || !S.set.clientId) { settingsDialog(); return; }
+  if (Sync.needAuth || !Sync.token || Sync.exp - Date.now() < 60000) { Sync.token = null; Sync.auth(true).then(() => { Sync.needAuth = false; Sync.run(); }).catch(() => { Sync.needAuth = true; Sync.status(); }); return; }
+  toast(Sync.msg || "Szinkron…"); Sync.run(true); };
 $("mSummary").onclick = () => {
   closePops();
   if (!S.set.driveOn || !S.set.clientId || !Sync.ids || !Sync.ids.root) {
@@ -1951,6 +1985,7 @@ function settingsDialog() {
     <label for="cid">OAuth kliensazonosító (Client ID)</label>
     <input type="text" id="cid" placeholder="….apps.googleusercontent.com" autocomplete="off" spellcheck="false">
     <p>Engedélyezett JavaScript-forrásnak ezt add meg a Google Cloudban: <code>${esc(location.origin)}</code></p>
+    <p>Ha a bejelentkező ablak „popup_closed” hibát ad, az app ugyanazon a lapon jelentkeztet be. Ehhez a Google Cloudban az <em>Authorized redirect URIs</em> közé ezt is add hozzá: <code>${esc(Sync.redirectUri())}</code></p>
     <div class="seg"><button class="btn pri" id="dOn"></button><button class="btn" id="dNow">Szinkronizálás most</button></div>
     <p id="dState"></p>
     <strong>S Pen gomb teszt</strong>
