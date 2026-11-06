@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.0.3";
+const APP_VERSION = "3.1.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -90,16 +90,25 @@ const saveNotebooks = () => DB.put("kv", S.notebooks, "notebooks").catch(console
 const saveDeleted = () => DB.put("kv", S.deleted, "deleted").catch(console.error);
 
 function newSection(name, color) { return { id: uid(), name, color, created: Date.now(), pages: [] }; }
+/* Képtár: projektenként egy külön „szakasz” a képernyőképeknek; azonosítója a füzetből képzett, így minden eszközön ugyanaz */
+const galSection = nb => ({ id: "g-" + nb.id, name: "Képtár", gal: true, color: nb.color, created: nb.created || Date.now(), pages: [] });
+const galOf = nb => nb && nb.sections.find(s => s.gal);
+const isGalPage = pg => { const r = pg && secOf(pg.id); return !!(r && r.sec.gal); };
 function newNotebook(name, color, paper) {
   const now = Date.now();
-  return { id: uid(), name, color, paper: paper || "grid", created: now, updated: now, sections: [newSection("Jegyzetek", color)] };
+  const nb = { id: uid(), name, color, paper: paper || "grid", created: now, updated: now, sections: [newSection("Jegyzetek", color)] };
+  nb.sections.push(galSection(nb)); return nb;
 }
 /* Régi (2.x) füzet: egyetlen lapsor → egy „Jegyzetek” szakasz. Az azonosító a füzetből képzett, így két eszköz ugyanazt kapja. */
 function normNb(nb) {
   if (!Array.isArray(nb.sections)) nb.sections = [{ id: "s-" + nb.id, name: "Jegyzetek", color: nb.color, created: nb.created || Date.now(), pages: (nb.pages || []).slice() }];
   delete nb.pages;
   if (!nb.sections.length) nb.sections.push({ id: "s-" + nb.id + "-" + Date.now().toString(36), name: "Jegyzetek", color: nb.color, created: Date.now(), pages: [] });
-  for (const s of nb.sections) { s.pages = Array.isArray(s.pages) ? s.pages : []; s.color = s.color || nb.color; s.name = s.name || "Szakasz"; }
+  for (const s of nb.sections) { s.pages = Array.isArray(s.pages) ? s.pages : []; s.color = s.color || nb.color; s.name = s.name || "Szakasz"; if (s.id === "g-" + nb.id) s.gal = true; }
+  if (!nb.sections.some(s => !s.gal)) nb.sections.unshift({ id: "s-" + nb.id + "-" + Date.now().toString(36), name: "Jegyzetek", color: nb.color, created: Date.now(), pages: [] });
+  const gals = nb.sections.filter(s => s.gal), g = gals[0] || galSection(nb);
+  for (const x of gals.slice(1)) for (const id of x.pages) if (!g.pages.includes(id)) g.pages.push(id);
+  g.name = "Képtár"; nb.sections = [...nb.sections.filter(s => !s.gal), g];
   return nb;
 }
 const nbPages = nb => nb.sections.flatMap(s => s.pages);
@@ -243,6 +252,7 @@ function paintPaper(x, pg, px, paperColor, pageNo, vr, tl) {
   const ph = pgH(pg);
   x.fillStyle = paperColor; x.fillRect(0, 0, W, ph);
   if (!pg) return;
+  const gal = isGalPage(pg); if (gal) pageNo = 0;
   if (pg.bg && bgCache.has(pg.bg.id)) { const [a, b, c, d] = bgRect(pg); x.drawImage(bgCache.get(pg.bg.id), a, b, c, d); }
   if (tl) x.drawImage(tl.cv, tl.r[0], tl.r[1], tl.r[2] - tl.r[0], tl.r[3] - tl.r[1]);
   const v = vr ? [Math.max(0, vr[0]), Math.max(0, vr[1]), Math.min(W, vr[2]), Math.min(ph, vr[3])] : [0, 0, W, ph];
@@ -268,10 +278,12 @@ function paintPaper(x, pg, px, paperColor, pageNo, vr, tl) {
   const fs = 3.3 * MM;
   x.font = `500 ${fs}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
   x.textBaseline = "alphabetic";
-  const date = fmtDate(pg.created);
-  x.textAlign = "right"; const tw = x.measureText(date).width;
-  x.fillStyle = paperColor; x.fillRect(W - 8 * MM - tw - 1.5 * MM, 5 * MM, tw + 3 * MM, fs + 2 * MM);
-  x.fillStyle = "#4f5b66"; x.fillText(date, W - 8 * MM, 5 * MM + fs + .6 * MM);
+  if (!gal) {
+    const date = fmtDate(pg.created);
+    x.textAlign = "right"; const tw = x.measureText(date).width;
+    x.fillStyle = paperColor; x.fillRect(W - 8 * MM - tw - 1.5 * MM, 5 * MM, tw + 3 * MM, fs + 2 * MM);
+    x.fillStyle = "#4f5b66"; x.fillText(date, W - 8 * MM, 5 * MM + fs + .6 * MM);
+  }
   if (pageNo) {
     x.textAlign = "center"; const t = String(pageNo), w2 = x.measureText(t).width;
     x.fillStyle = paperColor; x.fillRect(W / 2 - w2 / 2 - 2 * MM, ph - 11 * MM, w2 + 4 * MM, fs + 2.5 * MM);
@@ -1231,11 +1243,13 @@ async function openNotebook(id, pageId) {
   S.nb = nb; S.set.lastNb = id; S.set.navOpen[id] = true; saveSettings();
   await loadNotebookPages(nb);
   let sec = pageId ? nb.sections.find(s => s.pages.includes(pageId)) : null;
-  if (!sec) sec = nb.sections.find(s => s.id === S.set.lastSec[id]) || nb.sections[0];
+  if (!sec) sec = nb.sections.find(s => s.id === S.set.lastSec[id] && (!s.gal || s.pages.some(p => S.pages.has(p)))) || nb.sections.find(s => !s.gal);
   await openSection(sec, pageId);
 }
 async function openSection(sec, pageId) {
-  const nb = S.nb; S.sec = sec; S.set.lastSec[nb.id] = sec.id; saveSettings();
+  const nb = S.nb;
+  if (sec.gal && !sec.pages.some(p => S.pages.has(p))) sec = nb.sections.find(s => !s.gal);
+  S.sec = sec; S.set.lastSec[nb.id] = sec.id; saveSettings();
   let avail = sec.pages.filter(p => S.pages.has(p));
   if (!avail.length) { const pg = newPage(nb); sec.pages.push(pg.id); S.pages.set(pg.id, pg); await persistPage(pg, true); nb.updated = Date.now(); saveNotebooks(); avail = [pg.id]; Sync.schedule(8000); }
   const target = pageId && avail.includes(pageId) ? pageId : (avail.includes(S.set.lastPage[sec.id]) ? S.set.lastPage[sec.id] : avail[0]);
@@ -1257,7 +1271,7 @@ const pageLabel = pg => pg.title || "Névtelen lap";
 function updTitle() {
   const pg = S.page; if (!pg) return; const n = pageNoOf(pg), tot = S.sec ? S.sec.pages.length : 0;
   $("tPage").textContent = pageLabel(pg);
-  $("tWhere").textContent = (S.nb ? S.nb.name : "") + " › " + (S.sec ? S.sec.name : "") + " · " + n + ". lap";
+  $("tWhere").textContent = (S.nb ? S.nb.name : "") + " › " + (S.sec ? S.sec.name : "") + " · " + n + (S.sec && S.sec.gal ? ". kép" : ". lap");
   document.title = pageLabel(pg) + " – " + (S.nb ? S.nb.name : "") + " – CyberNote";
   $("bPrev").disabled = n <= 1; $("bNext").disabled = n >= tot;
 }
@@ -1274,9 +1288,9 @@ async function addPage(afterId, opts) {
   Sync.schedule(8000);
   return pg;
 }
-const newPageEnd = async () => { closePanels(); const pg = await addPage(null); await openPage(pg.id); toast("Új lap: " + pageNoOf(pg) + "."); };
+const newPageEnd = async () => { closePanels(); if (S.sec && S.sec.gal) { pickShot(); return; } const pg = await addPage(null); await openPage(pg.id); toast("Új lap: " + pageNoOf(pg) + "."); };
 $("bAdd").onclick = $("bAdd2").onclick = $("pgAdd").onclick = newPageEnd;
-$("pgInsert").onclick = async () => { closePops(); const pg = await addPage(S.page.id); await openPage(pg.id); toast("Beszúrva: " + pageNoOf(pg) + ". lap"); };
+$("pgInsert").onclick = async () => { closePops(); if (S.sec && S.sec.gal) { pickShot(); return; } const pg = await addPage(S.page.id); await openPage(pg.id); toast("Beszúrva: " + pageNoOf(pg) + ". lap"); };
 async function deletePage(pg) {
   const r = secOf(pg.id); if (!r) return;
   const { nb, sec } = r, i = sec.pages.indexOf(pg.id); sec.pages.splice(i, 1); nb.updated = Date.now();
@@ -1341,6 +1355,7 @@ function renderTree() {
     row.append(chev, ob, ed); box.append(row);
     if (!open) continue;
     for (const sec of nb.sections) {
+      if (sec.gal) continue;
       const sr = el("div", "trow secrow"); sr.setAttribute("aria-current", String(S.sec === sec));
       const sb = el("button", "open"); const bar = el("span", "secbar"); bar.style.background = sec.color || nb.color;
       sb.append(bar, el("span", "nm", sec.name)); const so = secOpenCount(sec); if (so) sb.append(badgeEl(so));
@@ -1350,11 +1365,23 @@ function renderTree() {
     }
     const add = el("button", "addrow sub"); add.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'; add.append("Új szakasz");
     add.onclick = () => sectionDialog(nb, null); box.append(add);
+    const g = galOf(nb);
+    if (g) {
+      const gr = el("div", "trow secrow galrow"); gr.setAttribute("aria-current", String(S.sec === g));
+      const gb = el("button", "open"); const gi = el("span", "galicon"); gi.innerHTML = ICON_CAM;
+      gb.append(gi, el("span", "nm", "Képtár")); gb.setAttribute("aria-label", "Képtár – " + nb.name + " (" + g.pages.length + " kép)");
+      if (g.pages.length) gb.append(el("span", "cnt", String(g.pages.length)));
+      const go2 = secOpenCount(g); if (go2) gb.append(badgeEl(go2));
+      gb.onclick = async () => { if (S.nb !== nb) { S.nb = nb; await loadNotebookPages(nb); } if (!g.pages.some(p => S.pages.has(p))) { galEmpty(nb); return; } await openSection(g); };
+      gr.append(gb); box.append(gr);
+    }
   }
   if (!list.length) box.append(el("div", "empty", "Nincs ilyen nevű füzet vagy szakasz."));
 }
 function renderPageList() {
   const box = $("pgList"); if (!S.sec) return; box.textContent = "";
+  const gal = !!S.sec.gal; box.classList.toggle("shotgrid", gal); $("pgAdd").textContent = gal ? "Kép hozzáadása" : "Lap hozzáadása";
+  if (gal) { renderShotList(box); return; }
   S.sec.pages.forEach((id, i) => {
     const pg = S.pages.get(id); if (!pg) return;
     const row = el("div", "pgrow"); row.setAttribute("aria-current", String(!!S.page && S.page.id === id));
@@ -1367,6 +1394,71 @@ function renderPageList() {
   });
   const cur = box.querySelector('[aria-current="true"]'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
 }
+/* ================= Képtár (képernyőképek projektenként) ================= */
+const ICON_CAM = '<svg viewBox="0 0 24 24"><path d="M3.5 8.5h3.2L8.6 6h6.8l1.9 2.5h3.2v10.5H3.5z"/><circle cx="12" cy="13.5" r="3.4"/></svg>';
+const SHOT_STRIP = 45 * MM; // üres sáv a kép alatt a megjegyzéseknek
+const thumbs = new Map();
+async function thumbUrl(pg) {
+  if (!pg.bg) return ""; if (thumbs.has(pg.bg.id)) return thumbs.get(pg.bg.id);
+  const b = await DB.get("blobs", pg.bg.id); if (!b) return "";
+  const u = URL.createObjectURL(b); thumbs.set(pg.bg.id, u); return u;
+}
+function renderShotList(box) {
+  S.sec.pages.forEach((id, i) => {
+    const pg = S.pages.get(id); if (!pg) return;
+    const row = el("div", "shot"); row.setAttribute("aria-current", String(!!S.page && S.page.id === id));
+    const b = el("button", "open"); const im = el("img"); im.alt = ""; im.loading = "lazy";
+    thumbUrl(pg).then(u => { if (u) im.src = u; });
+    b.append(im, el("span", "t", pageLabel(pg)), el("span", "d", (i + 1) + ". kép · " + relDate(pg.created) + ((pg.strokes.length || (pg.notes || []).length) ? " · jegyzetelt" : "")));
+    b.onclick = () => openPage(id); row.append(b);
+    const oc = openCountOf(pg); if (oc) row.append(badgeEl(oc));
+    const ed = el("button", "edit"); ed.innerHTML = ICON_EDIT; ed.setAttribute("aria-label", "Kép adatai: " + pageLabel(pg)); ed.onclick = () => pageDialog(pg);
+    row.append(ed); box.append(row);
+  });
+  const cur = box.querySelector('[aria-current="true"]'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
+}
+function galEmpty(nb) {
+  dialog("Képtár – " + nb.name, `<p>A Képtár még üres. Ide kerülnek a projekt képernyőképei, külön a jegyzetlapoktól.</p>
+    <p><b>Számítógépen:</b> Win+Shift+S-sel vágj ki egy részt a képernyőből, majd az appban nyomd meg a <b>Ctrl+V</b>-t. A kép az épp nyitott projekt Képtárába kerül, a jegyzetlapod nem változik. Képfájlt az ablakra is ráhúzhatsz.</p>
+    <p><b>Tableten:</b> a képre ugyanúgy írhatsz, rajzolhatsz és nagyíthatsz, mint a füzet lapjain.</p>`,
+    [["Bezárás"], ["Kép kiválasztása…", "pri", () => { S.nb = nb; pickShot(); }]]);
+}
+const isImgFile = f => /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name || "");
+async function addShot(f, nb) {
+  const g = galOf(nb); if (!g) return null;
+  const { blob, w, h } = await imageBlob(f, 3200, 9000, .92), bgId = uid(); await DB.put("blobs", blob, bgId);
+  const now = Date.now(), named = f.name && !/^image\.(png|jpe?g)$/i.test(f.name);
+  const pg = newPage(nb, { bg: { id: bgId, w, h, type: blob.type || "image/jpeg" }, paper: "blank", h: Math.round(W * h / w + SHOT_STRIP), mmW: 210,
+    title: named ? baseName(f.name) : "Képernyőkép " + fmtDate(now) + " " + fmtTime(now) });
+  g.pages.push(pg.id); S.pages.set(pg.id, pg); await persistPage(pg, true); nb.updated = Date.now(); saveNotebooks();
+  return pg;
+}
+async function shotsIn(files, nb) {
+  nb = nb || S.nb; if (!nb || !files.length) return;
+  const inGal = S.sec && S.sec.gal && S.nb === nb, made = [];
+  busy(files.length > 1 ? files.length + " kép mentése a Képtárba…" : "Kép mentése a Képtárba…");
+  for (const f of files) { try { const pg = await addShot(f, nb); if (pg) made.push(pg); } catch (e) { console.error(e); logError("kepernyokep", e && (e.stack || e.message)); toast("A kép nem menthető: " + e.message); } }
+  unbusy(); if (!made.length) return;
+  Sync.schedule(3000); renderTree();
+  if (inGal) await openPage(made[made.length - 1].id);
+  toast((made.length === 1 ? "Kép" : made.length + " kép") + " a Képtárba mentve – " + nb.name);
+}
+function pickShot() { importMode = "shot"; closePanels(); const f = $("fileIn"); f.accept = "image/*"; f.multiple = true; f.click(); }
+document.addEventListener("paste", e => {
+  const t = e.target; if (t && t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+  const cd = e.clipboardData; if (!cd) return;
+  let files = [...(cd.items || [])].filter(i => i.kind === "file" && /^image\//.test(i.type)).map(i => i.getAsFile()).filter(Boolean);
+  if (!files.length) files = [...(cd.files || [])].filter(isImgFile);
+  if (!files.length) return;
+  e.preventDefault(); shotsIn(files);
+});
+addEventListener("dragover", e => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
+addEventListener("drop", e => {
+  const fs = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (!fs.length) return;
+  e.preventDefault(); const imgs = fs.filter(isImgFile);
+  if (imgs.length) shotsIn(imgs); else toast("Ide képet húzhatsz (PNG, JPEG). PDF-et a Beszúrás › PDF / kép új lapra gombbal adhatsz hozzá.");
+});
+
 let listT = 0;
 function renderListsSoon() { clearTimeout(listT); listT = setTimeout(() => { renderPageList(); renderTree(); if (S.page) updTitle(); }, 300); }
 function updateOpenBadge() {
@@ -1425,12 +1517,12 @@ function sectionDialog(nb, sec) {
       const now = Date.now();
       for (const id of sec.pages) { S.deleted.pages[id] = now; S.pages.delete(id); await DB.del("pages", id); }
       saveDeleted(); nb.sections = nb.sections.filter(s => s !== sec);
-      if (!nb.sections.length) nb.sections.push(newSection("Jegyzetek", nb.color));
+      if (!nb.sections.some(s => !s.gal)) nb.sections.unshift(newSection("Jegyzetek", nb.color));
       nb.updated = Date.now(); saveNotebooks(); S.page = null; await openNotebook(nb.id); toast("Szakasz törölve"); Sync.schedule(3000);
     }]]), 0)]);
   btns.push([isNew ? "Létrehozás" : "Mentés", "pri", async () => {
     const name = inp.value.trim() || (isNew ? (nb.sections.length + 1) + ". szakasz" : sec.name);
-    if (isNew) { const s = newSection(name, color); nb.sections.push(s); nb.updated = Date.now(); saveNotebooks(); S.set.navOpen[nb.id] = true;
+    if (isNew) { const s = newSection(name, color); const gi = nb.sections.findIndex(x => x.gal); nb.sections.splice(gi < 0 ? nb.sections.length : gi, 0, s); nb.updated = Date.now(); saveNotebooks(); S.set.navOpen[nb.id] = true;
       S.nb = nb; await loadNotebookPages(nb); await openSection(s); }
     else { sec.name = name; sec.color = color; nb.updated = Date.now(); saveNotebooks(); renderTree(); updTitle();
       for (const id of sec.pages) { const p = S.pages.get(id); if (p) { p.updated = Date.now(); persistPage(p); } } }
@@ -1560,6 +1652,7 @@ function contactDialog(c) {
 let importMode = "new";
 const ACC_ALL = "application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg", ACC_IMG = "image/png,image/jpeg,.png,.jpg,.jpeg";
 $("impNew").onclick = $("mImport").onclick = () => { importMode = "new"; closePanels(); const f = $("fileIn"); f.accept = ACC_ALL; f.multiple = true; f.click(); };
+$("impShot").onclick = () => pickShot();
 $("impHere").onclick = () => { importMode = "here"; closePanels(); const f = $("fileIn"); f.accept = ACC_IMG; f.multiple = false; f.click(); };
 const baseName = n => n.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim().slice(0, 70);
 async function jpegOf(c, q) { return new Promise(r => c.toBlob(r, "image/jpeg", q)); }
@@ -1583,18 +1676,19 @@ async function importPdf(f, afterId) {
   } finally { try { task.destroy(); } catch (_) {} }
   return made;
 }
-async function imageBlob(f) {
+async function imageBlob(f, mw = 2400, mh = 3400, q = .88) {
   const bmp = await createImageBitmap(f); let w = bmp.width, h = bmp.height, blob = f;
-  if (w > 2400 || h > 3400 || f.type === "image/png" && f.size > 3e6) {
-    const k = Math.min(2400 / w, 3400 / h, 1); const c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  if (w > mw || h > mh || f.type === "image/png" && f.size > 3e6 || !/^image\/(png|jpeg)$/.test(f.type)) {
+    const k = Math.min(mw / w, mh / h, 1); const c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(h * k);
     const cx = c.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height); cx.drawImage(bmp, 0, 0, c.width, c.height);
-    blob = await jpegOf(c, .88); w = c.width; h = c.height;
+    blob = await jpegOf(c, q); w = c.width; h = c.height;
   }
   try { bmp.close(); } catch (_) {}
   return { blob, w, h };
 }
 $("fileIn").addEventListener("change", async () => {
   const files = [...$("fileIn").files]; $("fileIn").value = ""; if (!files.length) return;
+  if (importMode === "shot") { const imgs = files.filter(isImgFile); if (imgs.length) { const nb = S.nb; await shotsIn(imgs, nb); const g = galOf(nb); if (S.sec !== g && g && g.pages.length) await openPage(g.pages[g.pages.length - 1]); } return; }
   let made = [], after = S.page ? S.page.id : null;
   try {
     for (const f of files) {
@@ -1942,7 +2036,7 @@ const Sync = {
         notes: (pg.notes || []).length, json: f.json, img: f.img, bgFile: pg.bg ? this.ids.bgs[pg.bg.id] : undefined, pdfFile: pg.bg && pg.bg.pdf ? this.ids.pdfs[pg.bg.pdf] : undefined }; });
     return { v: 2, app: "CyberNote " + APP_VERSION, updated: Date.now(), timezone: "Europe/Budapest",
       notebooks: S.notebooks.map(n => ({ id: n.id, name: n.name, color: n.color, paper: n.paper, created: n.created, updated: n.updated,
-        sections: n.sections.map(s => ({ id: s.id, name: s.name, color: s.color, created: s.created, pages: s.pages })), pages: nbPages(n), contacts: n.contacts || [] })),
+        sections: n.sections.map(s => ({ id: s.id, name: s.name, color: s.color, created: s.created, pages: s.pages, ...(s.gal ? { gal: true } : {}) })), pages: nbPages(n), contacts: n.contacts || [] })),
       pages, deleted: S.deleted };
   },
   buildOpen() {
