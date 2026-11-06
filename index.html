@@ -3,25 +3,135 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#F7F6F2">
+<meta name="theme-color" content="#5B2A86">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="app-version" content="2.2.1">
+<meta name="app-version" content="3.0.0">
 <title>Tervezői jegyzetfüzet</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=2.2.1">
+<link rel="stylesheet" href="app.css?v=3.0.0">
 </head>
 <body>
 
-<main id="desk" aria-label="Jegyzetlap">
-  <div class="sheet" id="sheet">
+<!-- ===== Fejléc: címsor, fülek, menüszalag ===== -->
+<header id="top">
+  <div id="titlebar">
+    <button id="bSide" class="tbtn" aria-label="Navigáció megjelenítése" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button id="bUndo" class="tbtn" aria-label="Visszavonás (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M9 6L4 11l5 5"/><path d="M4 11h10a5 5 0 0 1 0 10h-3"/></svg></button>
+    <button id="bRedo" class="tbtn" aria-label="Újra (Ctrl+Y)" disabled><svg viewBox="0 0 24 24"><path d="M15 6l5 5-5 5"/><path d="M20 11H10a5 5 0 0 0 0 10h3"/></svg></button>
+    <div id="docTitle"><b id="tPage">–</b><span id="tWhere"></span></div>
+    <button id="sdot" class="tbtn sdot" aria-label="Szinkron állapota"><i></i><span id="sdotTxt"></span></button>
+    <button id="bRibbon" class="tbtn" aria-label="Menüszalag összecsukása" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+  </div>
+  <nav id="tabs" role="tablist" aria-label="Menü">
+    <button id="tabFile" class="tab file" aria-expanded="false">Fájl</button>
+    <button class="tab" role="tab" data-tab="home">Kezdőlap</button>
+    <button class="tab" role="tab" data-tab="insert">Beszúrás</button>
+    <button class="tab" role="tab" data-tab="draw">Rajz</button>
+    <button class="tab" role="tab" data-tab="view">Nézet</button>
+  </nav>
+  <div id="ribbon">
+    <!-- Kezdőlap -->
+    <div class="rpanel" data-panel="home" role="tabpanel">
+      <button class="rb" id="bTasks" aria-expanded="false"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg><span class="badge" id="badge" data-zero>0</span></span><span class="lb">Feladatok</span></button>
+      <button class="rb" id="bContacts" aria-expanded="false"><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.7-1.5 1.8-2.2 3.2-2.2s2.5.7 3.2 2.2M14.5 10h4M14.5 13.5h3"/></svg></span><span class="lb">Névjegyek</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bPrev"><span class="ic"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span><span class="lb">Előző lap</span></button>
+      <button class="rb" id="bNext"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><span class="lb">Következő</span></button>
+      <button class="rb" id="bAdd"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M8.5 13.5h7"/></svg></span><span class="lb">Új lap</span></button>
+      <button class="rb" id="bPgEdit"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></span><span class="lb">Lap adatai</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bNoteH"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetli</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bExpPdfH"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><text x="12" y="17.5" text-anchor="middle" font-size="6.2" font-weight="700" fill="currentColor" stroke="none">PDF</text></svg></span><span class="lb">PDF mentés</span></button>
+      <button class="rb" id="bExpDocH"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M8.5 11l1.4 6 2.1-5 2.1 5 1.4-6"/></svg></span><span class="lb">Word mentés</span></button>
+    </div>
+    <!-- Beszúrás -->
+    <div class="rpanel" data-panel="insert" role="tabpanel" hidden>
+      <button class="rb" id="bAdd2"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M8.5 13.5h7"/></svg></span><span class="lb">Új lap a végére</span></button>
+      <button class="rb" id="pgInsert"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M9 12h6M12 9v6"/></svg></span><span class="lb">Lap ez után</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="impNew"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M12 10v7M9 14l3 3 3-3"/></svg></span><span class="lb">PDF / kép új lapra</span></button>
+      <button class="rb" id="impHere"><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/></svg></span><span class="lb">Kép a lap hátterére</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bNote"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Öntapadós jegyzetcetli</span></button>
+      <span class="rsep"></span>
+      <button class="rb tool" data-tool="box"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg></span><span class="lb">Feladat</span></button>
+      <button class="rb tool" data-tool="q"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H10l-4 4v-4H4z"/><path d="M10 8.6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.7M12 13.6v.1"/></svg></span><span class="lb">Kérdés</span></button>
+    </div>
+    <!-- Rajz -->
+    <div class="rpanel" data-panel="draw" role="tabpanel" hidden>
+      <button class="rb tool" data-tool="pen"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></span><span class="lb">Toll</span></button>
+      <button class="rb tool" data-tool="hi"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 14l7-10 4 3-7 10z"/><path d="M9 14l-2 3 2 1h4"/><path d="M4 21h8"/></svg></span><span class="lb">Kiemelő</span></button>
+      <button class="rb tool" data-tool="pc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/><path d="M4 20l3.2-.8L5 17z" fill="currentColor"/></svg></span><span class="lb">Ceruza</span></button>
+      <button class="rb tool" data-tool="er"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 15l9-9 6 6-7 7H8z"/><path d="M10 9l6 6"/><path d="M12 20h8"/></svg></span><span class="lb">Radír</span></button>
+      <button class="rb tool" data-tool="lasso"><span class="ic"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="10" rx="8" ry="5.5" stroke-dasharray="3 2.5"/><path d="M9 15c-1 3 0 5 2 6"/></svg></span><span class="lb">Lasszó</span></button>
+      <span class="rsep"></span>
+      <div class="rcol"><div id="recent" class="recent"></div><span class="lb">Színek</span></div>
+      <button class="rb" id="bMix"><span class="ic mix"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/></svg></span><span class="lb">Színkeverő</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bWidth"><span class="ic wbox"><span id="wTxt">0,6</span></span><span class="lb">Vastagság</span></button>
+      <button class="rb" id="favW" hidden><span class="ic wbox fav"><b>★</b><span></span></span><span class="lb">Kedvenc</span></button>
+      <button class="rb" id="bFavPens"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg></span><span class="lb">Kedvenc tollak</span></button>
+      <span class="rsep"></span>
+      <button class="rb tool" data-tool="box"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg></span><span class="lb">Feladat</span></button>
+      <button class="rb tool" data-tool="q"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H10l-4 4v-4H4z"/><path d="M10 8.6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.7M12 13.6v.1"/></svg></span><span class="lb">Kérdés</span></button>
+      <button class="rb" id="bNoteD"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetli</span></button>
+    </div>
+    <!-- Nézet -->
+    <div class="rpanel" data-panel="view" role="tabpanel" hidden>
+      <button class="rb" id="zOut"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8 11h6"/></svg></span><span class="lb">Kicsinyítés</span></button>
+      <button class="rb" id="zPct"><span class="ic wbox"><span id="zTxt">100%</span></span><span class="lb">Mérték</span></button>
+      <button class="rb" id="zIn"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8 11h6M11 8v6"/></svg></span><span class="lb">Nagyítás</span></button>
+      <button class="rb" id="zFitW"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3"/><path d="M8 4v16M16 4v16" stroke-dasharray="2 2"/></svg></span><span class="lb">Lapszélesség</span></button>
+      <button class="rb" id="zFitP"><span class="ic"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="1"/><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5"/></svg></span><span class="lb">Teljes lap</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="vNav" aria-pressed="true"><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></span><span class="lb">Füzetek</span></button>
+      <button class="rb" id="vPages" aria-pressed="true"><span class="ic"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.1M4 12h.1M4 18h.1"/></svg></span><span class="lb">Laplista</span></button>
+      <button class="rb" id="vNotes" aria-pressed="true"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetlik</span></button>
+      <span class="rsep"></span>
+      <div class="rcol wide"><select id="paper" class="txt" aria-label="Lap típusa"></select><span class="lb">Lap típusa</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- Fájl menü -->
+<section id="fileMenu" class="pop menu" hidden aria-label="Fájl">
+  <button class="mitem" id="mNewNb"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M12 8v6M9 11h6"/></svg><span>Új füzet (projekt)</span></button>
+  <button class="mitem" id="mImport"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M9 14l3 3 3-3"/></svg><span>Importálás<small>PDF, PNG, JPEG – mindig új lapra</small></span></button>
+  <div class="mhead">Mentés PDF-be</div>
+  <div class="mrow"><button class="chipbtn" data-exp="pdf:page">Aktuális lap</button><button class="chipbtn" data-exp="pdf:sec">Szakasz</button><button class="chipbtn" data-exp="pdf:nb">Teljes füzet</button></div>
+  <div class="mhead">Mentés Word-be (.docx)</div>
+  <div class="mrow"><button class="chipbtn" data-exp="docx:page">Aktuális lap</button><button class="chipbtn" data-exp="docx:sec">Szakasz</button><button class="chipbtn" data-exp="docx:nb">Teljes füzet</button></div>
+  <div class="mhr"></div>
+  <button class="mitem" id="mSummary"><svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span>Napi összefoglalók</span></button>
+  <button class="mitem" id="mSettings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Beállítások és szinkron</span></button>
+  <div class="lbl pad" id="status">–</div>
+</section>
+
+<div id="body">
+  <!-- Bal oldal: füzetek és szakaszok -->
+  <aside id="nav" aria-label="Füzetek és szakaszok">
+    <div class="navhead"><input id="nbSearch" class="txt" type="search" placeholder="Füzet keresése…" aria-label="Füzet keresése"></div>
+    <div id="tree" class="tree"></div>
+    <button id="nbNew" class="addrow"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Új füzet</button>
+  </aside>
+  <!-- Lapok -->
+  <aside id="pagesCol" aria-label="Lapok">
+    <div class="pghead"><button id="pgAdd" class="addpg"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M8.5 13.5h7"/></svg>Lap hozzáadása</button></div>
+    <div id="pgList" class="pglist"></div>
+  </aside>
+  <!-- Lap -->
+  <main id="stage" aria-label="Jegyzetlap">
     <canvas id="cPaper" aria-hidden="true"></canvas><canvas id="cInk" aria-hidden="true"></canvas><canvas id="cLive" aria-label="Rajzfelület"></canvas>
     <div id="selBox" class="selbox" hidden></div>
-  </div>
-</main>
+    <div id="zoomBadge" class="zoombadge" hidden></div>
+  </main>
+  <div id="scrim" class="scrim" hidden></div>
+</div>
 
 <div class="selbar" id="selBar" hidden>
   <button id="sCopy">Másolás</button>
@@ -31,42 +141,16 @@
 </div>
 <div class="recolor" id="recolor" hidden></div>
 
-<!-- Lebegő felső sáv -->
-<nav id="pill" aria-label="Füzet és lapok">
-  <button id="bNbs" aria-label="Projektfüzetek" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg></button>
-  <span id="nbName" class="nbname">–</span>
-  <button id="sdot" class="sdot" aria-label="Szinkron állapota"><i></i></button>
-  <span class="sep"></span>
-  <button id="bPrev" aria-label="Előző lap"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
-  <button id="bNext" aria-label="Következő lap"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
-  <button id="bAdd" aria-label="Új lap a végére"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M8.5 13.5h7"/></svg></button>
-  <span class="sep"></span>
-  <button id="bTasks" class="txtbtn" aria-expanded="false"><span class="t">Feladatok</span><span class="badge" id="badge" data-zero>0</span></button>
-  <button id="bContacts" aria-label="Névjegyek" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.7-1.5 1.8-2.2 3.2-2.2s2.5.7 3.2 2.2M14.5 10h4M14.5 13.5h3"/></svg></button>
-  <button id="bFile" class="filebtn" aria-expanded="false">Fájl</button>
-</nav>
-
-<!-- Lebegő eszközpaletta -->
-<aside id="pal" aria-label="Eszközök">
-  <button class="tool" data-tool="pen" aria-label="Toll"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></button>
-  <button class="tool" data-tool="hi" aria-label="Szövegkiemelő"><svg viewBox="0 0 24 24"><path d="M9 14l7-10 4 3-7 10z"/><path d="M9 14l-2 3 2 1h4"/><path d="M4 21h8"/></svg></button>
-  <button class="tool" data-tool="pc" aria-label="Grafitceruza"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/><path d="M4 20l3.2-.8L5 17z" fill="currentColor"/></svg></button>
-  <button class="tool" data-tool="er" aria-label="Radír (S Pen gomb is)"><svg viewBox="0 0 24 24"><path d="M4 15l9-9 6 6-7 7H8z"/><path d="M10 9l6 6"/><path d="M12 20h8"/></svg></button>
-  <button class="tool" data-tool="lasso" aria-label="Lasszó"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="10" rx="8" ry="5.5" stroke-dasharray="3 2.5"/><path d="M9 15c-1 3 0 5 2 6"/></svg></button>
-  <button class="tool" data-tool="box" aria-label="Jelölőnégyzet (feladat)"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg></button>
-  <button class="tool" data-tool="q" aria-label="Kérdés (szövegbuborék)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H10l-4 4v-4H4z"/><path d="M10 8.6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.7M12 13.6v.1"/></svg></button>
-  <button id="bFavPens" class="tool" aria-label="Kedvenc tollak"><svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg></button>
-  <span class="div"></span>
-  <div id="recent" class="recent"></div>
-  <button id="bMix" class="mix" aria-label="Színkeverő"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-  <button id="favW" class="favw" hidden aria-label="Kedvenc vastagság"><b>★</b><span></span></button>
-  <span class="div"></span>
-  <button id="bUndo" class="small" aria-label="Visszavonás" disabled><svg viewBox="0 0 24 24"><path d="M9 6L4 11l5 5"/><path d="M4 11h10a5 5 0 0 1 0 10h-3"/></svg></button>
-  <button id="bRedo" class="small" aria-label="Újra" disabled><svg viewBox="0 0 24 24"><path d="M15 6l5 5-5 5"/><path d="M20 11H10a5 5 0 0 0 0 10h3"/></svg></button>
-</aside>
+<!-- Jegyzetcetli menüje -->
+<div class="selbar notebar" id="noteBar" hidden>
+  <div id="noteCols" class="ncols"></div>
+  <button id="nFront">Előtérbe</button>
+  <button id="nDel" class="del">Törlés</button>
+  <button id="nDone">Kész</button>
+</div>
 
 <!-- Toll panel -->
-<section id="pPen" class="sky side-panel" hidden aria-label="Toll beállításai">
+<section id="pPen" class="pop side-panel" hidden aria-label="Toll beállításai">
   <div class="row between"><h2>Toll</h2><span class="hex" id="penHex"></span></div>
   <span class="lbl">Kedvenc tollak</span>
   <div id="favList" class="favlist"></div>
@@ -89,7 +173,7 @@
 </section>
 
 <!-- Kiemelő panel -->
-<section id="pHi" class="sky side-panel" hidden aria-label="Szövegkiemelő beállításai">
+<section id="pHi" class="pop side-panel" hidden aria-label="Szövegkiemelő beállításai">
   <div class="row between"><h2>Szövegkiemelő</h2><span class="hex" id="hiHex"></span></div>
   <span class="lbl strong">Saját 4 szín</span>
   <div class="row slots" id="hiColors"></div>
@@ -103,7 +187,7 @@
 </section>
 
 <!-- Grafitceruza panel -->
-<section id="pPc" class="sky side-panel" hidden aria-label="Grafitceruza beállításai">
+<section id="pPc" class="pop side-panel" hidden aria-label="Grafitceruza beállításai">
   <h2>Grafitceruza</h2>
   <span class="lbl">Keménység</span>
   <div class="seg seg4" id="pcHard"><button data-h="H">H</button><button data-h="HB">HB</button><button data-h="B">B</button><button data-h="2B">2B</button></div>
@@ -117,45 +201,16 @@
 </section>
 
 <!-- Radír panel -->
-<section id="pEr" class="sky side-panel" hidden aria-label="Radír beállításai">
+<section id="pEr" class="pop side-panel" hidden aria-label="Radír beállításai">
   <h2>Radír</h2>
   <div class="seg"><button id="erStroke">Egész vonal</button><button id="erPart">Csak érintett rész</button></div>
   <div class="row between"><label for="erSize" class="lbl">Radír mérete</label><b id="erOut" class="val"></b></div>
   <input type="range" id="erSize" min="4" max="40" step="1">
-  <p class="note">Az S Pen oldalsó gombját nyomva tartva bármelyik eszközzel radírozhatsz.</p>
-</section>
-
-<!-- Projektfüzetek -->
-<section id="drawer" class="sky" hidden aria-label="Projektfüzetek">
-  <div class="row between"><h2>Projektfüzetek</h2><span class="lbl" id="nbCount"></span></div>
-  <input id="nbSearch" class="txt" type="search" placeholder="Füzet neve…" aria-label="Füzet keresése">
-  <div class="list" id="nbList"></div>
-  <button id="nbNew" class="ghost"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Új projektfüzet</button>
-  <div class="hr"></div>
-  <div class="row between"><span class="lbl strong">Lapok ebben a füzetben</span></div>
-  <div class="list pages" id="pgList"></div>
-</section>
-
-<!-- Fájl menü -->
-<section id="fileMenu" class="sky" hidden aria-label="Fájl">
-  <div class="mhead">Importálás (PDF, PNG, JPEG)</div>
-  <button class="mitem" id="impNew"><span>Új lapként<small>PDF oldalanként külön lap</small></span></button>
-  <button class="mitem" id="impHere"><span>Az aktuális lapra<small>Háttérként, rá lehet írni</small></span></button>
-  <div class="mhead">Exportálás PDF-be</div>
-  <button class="mitem" id="expPage">Aktuális lap</button>
-  <button class="mitem" id="expNb">Teljes füzet</button>
-  <div class="mhead">Lap</div>
-  <div class="row pad"><label for="paper" class="lbl">Lap típusa</label><select id="paper" class="txt grow"></select></div>
-  <button class="mitem" id="pgInsert">Lap beszúrása ez után</button>
-  <button class="mitem danger" id="pgDel">Lap törlése</button>
-  <div class="mhead">Egyéb</div>
-  <button class="mitem" id="mSummary">Napi összefoglalók</button>
-  <button class="mitem" id="mSettings">Beállítások és szinkron</button>
-  <div class="lbl pad" id="status">–</div>
+  <p class="note">Az S Pen oldalsó gombját nyomva tartva bármelyik eszközzel radírozhatsz. A jegyzetcetlin csak a cetli írását törli.</p>
 </section>
 
 <!-- Feladatok panel -->
-<section id="tasks" class="sky tall" hidden aria-label="Feladatok és kérdések">
+<section id="tasks" class="pop tall" hidden aria-label="Feladatok és kérdések">
   <div class="row between nowrap"><h2>Feladatok és kérdések</h2>
     <button id="taskClose" class="icon" aria-label="Panel bezárása"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="seg"><button id="tkTasks">Feladatok</button><button id="tkQs">Kérdések</button></div>
@@ -166,7 +221,7 @@
 </section>
 
 <!-- Névjegyek panel -->
-<section id="contacts" class="sky tall" hidden aria-label="Projekt névjegyei">
+<section id="contacts" class="pop tall" hidden aria-label="Projekt névjegyei">
   <div class="row between nowrap"><h2 id="ctTitle">Névjegyek</h2>
     <button id="ctClose" class="icon" aria-label="Panel bezárása"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <input id="ctSearch" class="txt" type="search" placeholder="Keresés név, szakág, telefon…" aria-label="Névjegy keresése">
@@ -186,6 +241,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=2.2.1"></script>
+<script src="app.js?v=3.0.0"></script>
 </body>
 </html>

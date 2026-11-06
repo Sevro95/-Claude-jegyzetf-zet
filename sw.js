@@ -1,6 +1,6 @@
 // Tervezői jegyzetfüzet – service worker (offline működés)
-const VERSION = "jf-v2.2.1";
-const SHELL = ["./", "./index.html", "./app.css?v=2.2.1", "./app.js?v=2.2.1", "./manifest.webmanifest",
+const VERSION = "jf-v3.0.0";
+const SHELL = ["./", "./index.html", "./app.css?v=3.0.0", "./app.js?v=3.0.0", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png"];
 const LIBS = "jf-libs-v1";
 
@@ -25,7 +25,7 @@ self.addEventListener("fetch", e => {
   }
   // Google-szolgáltatások: soha ne cache-eljük
   if (/googleapis\.com|accounts\.google\.com|gstatic\.com/.test(url.host)) return;
-  // pdf.js, jsPDF a cdnjs-ről: első letöltés után offline is elérhető
+  // pdf.js a cdnjs-ről: első letöltés után offline is elérhető
   if (url.host === "cdnjs.cloudflare.com") {
     e.respondWith(caches.open(LIBS).then(async c => {
       const hit = await c.match(e.request);
