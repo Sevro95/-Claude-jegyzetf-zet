@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.2.0">
+<meta name="app-version" content="3.3.0">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.2.0">
+<link rel="stylesheet" href="app.css?v=3.3.0">
 </head>
 <body>
 
@@ -33,6 +33,7 @@
     <button class="tab" role="tab" data-tab="home">Kezdőlap</button>
     <button class="tab" role="tab" data-tab="insert">Beszúrás</button>
     <button class="tab" role="tab" data-tab="draw">Rajz</button>
+    <button class="tab" role="tab" data-tab="stk">Matricák</button>
     <button class="tab" role="tab" data-tab="view">Nézet</button>
   </nav>
   <div id="ribbon">
@@ -84,6 +85,12 @@
       <button class="rb tool" data-tool="q"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H10l-4 4v-4H4z"/><path d="M10 8.6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.7M12 13.6v.1"/></svg></span><span class="lb">Kérdés</span></button>
       <button class="rb" id="bNoteD"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetli</span></button>
     </div>
+    <!-- Matricák -->
+    <div class="rpanel" data-panel="stk" role="tabpanel" hidden>
+      <button class="rb tool" data-tool="stk"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></span><span class="lb">Mozgatás</span></button>
+      <span class="rsep"></span>
+      <div id="stkList" class="stklist"></div>
+    </div>
     <!-- Nézet -->
     <div class="rpanel" data-panel="view" role="tabpanel" hidden>
       <button class="rb" id="zOut"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8 11h6"/></svg></span><span class="lb">Kicsinyítés</span></button>
@@ -131,6 +138,7 @@
   <main id="stage" aria-label="Jegyzetlap">
     <canvas id="cPaper" aria-hidden="true"></canvas><canvas id="cInk" aria-hidden="true"></canvas><canvas id="cLive" aria-label="Rajzfelület"></canvas>
     <div id="selBox" class="selbox" hidden></div>
+    <div id="stkBox" class="stkbox" hidden></div>
     <div id="zoomBadge" class="zoombadge" hidden></div>
   </main>
   <div id="scrim" class="scrim" hidden></div>
@@ -144,6 +152,16 @@
 </div>
 <div class="recolor" id="recolor" hidden></div>
 
+<!-- Matrica menüje -->
+<div class="selbar" id="stkBar" hidden>
+  <span id="kName" class="kname"></span>
+  <button id="kCopy">Másolás</button>
+  <button id="kFlip">Tükrözés</button>
+  <button id="kFront">Előre</button>
+  <button id="kBack">Hátra</button>
+  <button id="kDel" class="del">Törlés</button>
+  <button id="kDone">Kész</button>
+</div>
 <!-- Jegyzetcetli menüje -->
 <div class="selbar notebar" id="noteBar" hidden>
   <div id="noteCols" class="ncols"></div>
@@ -244,6 +262,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.2.0"></script>
+<script src="app.js?v=3.3.0"></script>
 </body>
 </html>

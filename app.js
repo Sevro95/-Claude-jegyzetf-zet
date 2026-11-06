@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.2.0";
+const APP_VERSION = "3.3.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -124,7 +124,7 @@ const pageNoOf = pg => { const r = secOf(pg.id); return r ? r.sec.pages.indexOf(
 function newPage(nb, opts = {}) {
   const now = Date.now();
   return { id: uid(), nb: nb.id, created: now, updated: now, paper: opts.paper || nb.paper || "grid",
-    bg: opts.bg || null, h: opts.h || H0, mmW: opts.mmW || 210, title: opts.title || "", strokes: [], marks: [], notes: [] };
+    bg: opts.bg || null, h: opts.h || H0, mmW: opts.mmW || 210, title: opts.title || "", strokes: [], marks: [], notes: [], stickers: [] };
 }
 function bbox(s) {
   let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
@@ -144,11 +144,13 @@ const deserStroke = s => bbox({ id: s.id, t: s.t, c: s.c, w: s.w, a: s.a, ts: s.
 function serializePage(pg) {
   return { v: 2, id: pg.id, nb: pg.nb, created: pg.created, updated: pg.updated, paper: pg.paper, bg: pg.bg, h: pgH(pg), mmW: pg.mmW || 210, title: pg.title || "",
     strokes: pg.strokes.map(serStroke), marks: pg.marks.map(m => ({ ...m })),
+    stickers: (pg.stickers || []).map(k => ({ ...k })),
     notes: (pg.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: n.strokes.map(serStroke) })) };
 }
 function deserializePage(o) {
   return { id: o.id, nb: o.nb, created: o.created, updated: o.updated, paper: o.paper || "grid", bg: o.bg || null, h: o.h || H0, mmW: o.mmW || 210, title: o.title || "",
     strokes: (o.strokes || []).map(deserStroke), marks: (o.marks || []).map(m => ({ ...m })),
+    stickers: (o.stickers || []).map(k => ({ ...k })),
     notes: (o.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: (n.strokes || []).map(deserStroke) })) };
 }
 const pageTimers = {};
@@ -210,14 +212,14 @@ const visRect = () => [(-V.tx) / V.K, (-V.ty) / V.K, (V.cw - V.tx) / V.K, (V.ch 
 const viewKey = () => [V.K.toFixed(5), V.tx.toFixed(1), V.ty.toFixed(1), V.cw, V.ch, DPR.toFixed(3), S.page && S.page.id].join("|");
 function cssApply() {
   const k = V.K / R.K, dx = V.tx - R.tx * k, dy = V.ty - R.ty * k, t = `translate(${dx}px,${dy}px) scale(${k})`;
-  cP.style.transform = t; cI.style.transform = t; placeSel(); placeNoteBar(); updZoomUI();
+  cP.style.transform = t; cI.style.transform = t; placeSel(); placeNoteBar(); placeStk(); updZoomUI();
 }
 let renderT = 0, renderRaf = 0;
 function render() {
   clearTimeout(renderT); if (renderRaf) { cancelAnimationFrame(renderRaf); renderRaf = 0; }
   R.K = V.K; R.tx = V.tx; R.ty = V.ty; cP.style.transform = ""; cI.style.transform = "";
   drawPaper(); drawInk(); if (!act) clearLive(); else setViewT(xL);
-  placeSel(); placeNoteBar(); updZoomUI(); hiResSoon();
+  placeSel(); placeNoteBar(); placeStk(); updZoomUI(); hiResSoon();
 }
 const renderSoon = () => { if (!renderRaf) renderRaf = requestAnimationFrame(() => { renderRaf = 0; render(); }); };
 const renderLater = ms => { clearTimeout(renderT); renderT = setTimeout(render, ms || 160); };
@@ -453,6 +455,11 @@ function drawNote(x, n, clip) {
 const reach = s => s.t === "h" ? s.w * 3 + 2 : s.w * 1.4 + 2;
 const hitsRect = (bb, r, pad) => !(bb[2] + pad < r[0] || bb[0] - pad > r[2] || bb[3] + pad < r[1] || bb[1] - pad > r[3]);
 function paintInk(x, pg, clip, notes = true) {
+  for (const k of pg.stickers || []) {
+    if (clip && !overlap([k.x, k.y, k.x + k.w, k.y + k.h], clip)) continue;
+    const im = stkImg.get(k.s); if (!im) { loadSticker(k.s).then(() => { if (S.page === pg) drawInk(); }); continue; }
+    x.save(); if (k.f) { x.translate(k.x + k.w, k.y); x.scale(-1, 1); x.drawImage(im, 0, 0, k.w, k.h); } else x.drawImage(im, k.x, k.y, k.w, k.h); x.restore();
+  }
   for (const s of pg.strokes) {
     if (clip && s.bb && !hitsRect(s.bb, clip, reach(s))) continue;
     try { drawStroke(x, s); } catch (e) { logError("rajz", e && e.message); }
@@ -489,7 +496,7 @@ function doneRowsTouching(pg, bb) {
 
 /* Teljes lap képe (export, Drive). hi: importált PDF-nél a háttér a PDF-ből, a kimenet felbontásán */
 async function renderPageCanvas(pg, widthPx, hi) {
-  await ensureBg(pg);
+  await ensureBg(pg); await Promise.all((pg.stickers || []).map(k => loadSticker(k.s)));
   const ph = pgH(pg), c = document.createElement("canvas"); c.width = widthPx; c.height = Math.round(widthPx * ph / W);
   const x = c.getContext("2d"), k = widthPx / W; x.setTransform(k, 0, 0, k, 0, 0);
   let tl = null;
@@ -563,7 +570,7 @@ const stagePt = e => [e.clientX - SR.left, e.clientY - SR.top];
 const ptOf = e => [(e.clientX - SR.left - V.tx) / V.K, (e.clientY - SR.top - V.ty) / V.K];
 const pressureOf = e => e.pointerType === "pen" ? Math.max(.05, Math.min(1, e.pressure || .5)) : .5;
 const isEraserEvt = e => !!((e.buttons & 32) || (e.buttons & 2) || e.button === 5 || e.button === 2);
-const snapshot = pg => ({ strokes: pg.strokes.slice(), marks: pg.marks.map(m => ({ ...m })), notes: (pg.notes || []).map(n => ({ ...n, strokes: n.strokes.slice() })) });
+const snapshot = pg => ({ strokes: pg.strokes.slice(), marks: pg.marks.map(m => ({ ...m })), notes: (pg.notes || []).map(n => ({ ...n, strokes: n.strokes.slice() })), stickers: (pg.stickers || []).map(k => ({ ...k })) });
 function pushUndo(pg, snap) {
   if (!S.undo.has(pg.id)) S.undo.set(pg.id, []);
   const u = S.undo.get(pg.id); u.push(snap); if (u.length > 80) u.shift();
@@ -586,6 +593,8 @@ function restore(pg, snap) {
   const os = new Map(on.map(q => [q.id, noteSig(q)])), ns = new Map(nn.map(q => [q.id, noteSig(q)]));
   for (const q of on) if (ns.get(q.id) !== os.get(q.id)) add(noteRect(q));
   for (const q of nn) if (os.get(q.id) !== ns.get(q.id)) add(noteRect(q));
+  if (JSON.stringify(pg.stickers || []) !== JSON.stringify(snap.stickers || [])) n += 1000;
+  pg.stickers = (snap.stickers || []).map(k => ({ ...k })); if (S.stk && !pg.stickers.some(k => k.id === S.stk)) hideStkBar(); else placeStk();
   pg.strokes = snap.strokes.slice(); pg.marks = snap.marks.map(m => ({ ...m })); pg.notes = nn.map(q => ({ ...q, strokes: q.strokes.slice() }));
   clearSel(); if (S.note && !pg.notes.some(q => q.id === S.note)) hideNoteBar(); else placeNoteBar();
   if (reg || n) { if (n > 400 || !reg) drawInk(); else { for (const m of doneRowsTouching(pg, reg)) add([m.x - 4, m.y - BOX, W, m.y + 2 * BOX]); markDirty(reg); } }
@@ -699,6 +708,11 @@ cL.addEventListener("pointerdown", e => {
   if (S.note && (!nh || nh.n.id !== S.note)) hideNoteBar();
   if (nh && !er && nh.part !== "body") { clearSel(); act = { kind: nh.part === "head" ? "nmove" : "nsize", id, nid: nh.n.id, lx: x, ly: y, sx: e.clientX, sy: e.clientY, snap: snapshot(pg), moved: false }; return; }
   if (er) { clearSel(); act = { kind: "erase", id, snap: snapshot(pg), changed: false }; eraseAt(x, y); return; }
+  if (S.tool === "stk") {
+    const k = stkHit(pg, x, y);
+    if (!k) { hideStkBar(); return; }
+    act = { kind: stkGrip(k, x, y) ? "ssize" : "smove", id, kid: k.id, lx: x, ly: y, sx: e.clientX, sy: e.clientY, snap: snapshot(pg), moved: false }; return;
+  }
   const p0 = [x, y, pressureOf(e)];
   if (nh) {
     if (S.tool === "pen" || S.tool === "hi" || S.tool === "pc") { clearSel(); startStroke(id, [x - nh.n.x, y - nh.n.y, p0[2]], nh.n); return; }
@@ -738,6 +752,10 @@ cL.addEventListener("pointermove", e => {
     clearLive(); xL.save(); xL.setLineDash([6, 5]); xL.strokeStyle = "#00B8D4"; xL.lineWidth = 2 / V.K; xL.beginPath();
     xL.moveTo(L[0][0], L[0][1]); for (const q of L) xL.lineTo(q[0], q[1]); xL.stroke(); xL.restore(); return; }
   if (act.kind === "move") { const [x, y] = ptOf(e); moveSel(x - act.lx, y - act.ly); act.lx = x; act.ly = y; return; }
+  if (act.kind === "smove" || act.kind === "ssize") {
+    if (!act.moved && Math.hypot(e.clientX - act.sx, e.clientY - act.sy) < 5) return;
+    const [x, y] = ptOf(e); stkDrag(x - act.lx, y - act.ly); act.lx = x; act.ly = y; return;
+  }
   if (act.kind === "nmove" || act.kind === "nsize") {
     if (!act.moved && Math.hypot(e.clientX - act.sx, e.clientY - act.sy) < 5) return;
     const [x, y] = ptOf(e); noteDrag(x - act.lx, y - act.ly); act.lx = x; act.ly = y; return;
@@ -757,6 +775,10 @@ function endPointer(e) {
   const a = act; act = null; const pg = S.page;
   if (a.kind === "tap") { if (a.m.k === "q") questionDialog(pg, a.m); else toggleMark(pg, a.m); return; }
   if (a.kind === "erase") { if (a.changed) { pushUndo(pg, a.snap); touchPage(pg); } return; }
+  if (a.kind === "smove" || a.kind === "ssize") {
+    if (a.moved) { pushUndo(pg, a.snap); touchPage(pg); }
+    showStkBar(a.kid); return;
+  }
   if (a.kind === "nmove" || a.kind === "nsize") {
     if (a.moved) { pushUndo(pg, a.snap); touchPage(pg); placeNoteBar(); }
     else if (a.kind === "nmove") { if (S.note === a.nid) hideNoteBar(); else showNoteBar(a.nid); }
@@ -930,6 +952,77 @@ $("sColor").onclick = () => {
 };
 $("sDone").onclick = () => clearSel();
 
+/* ================= Matricák (épületgépészeti elemek) ================= */
+const STICKERS = [
+  ["lemezes-hocserelo", "Lemezes hőcserélő"], ["keringeto-szivattyu", "Keringető szivattyú"], ["hoszivattyu-kulteri", "Hőszivattyú kültéri"],
+  ["kondenzacios-kazan", "Kondenzációs kazán"], ["hmv-tarolo", "HMV-tároló"], ["split-belteri", "Split beltéri"],
+  ["kazettas-belteri", "Kazettás beltéri"], ["expanzios-tartaly", "Expanziós tartály"], ["tagulasi-tartaly", "Tágulási tartály"]];
+const stkName = id => (STICKERS.find(s => s[0] === id) || [id, id])[1];
+const stkImg = new Map(), stkLoading = new Map();
+function loadSticker(id) {
+  if (stkImg.has(id)) return Promise.resolve(stkImg.get(id));
+  if (stkLoading.has(id)) return stkLoading.get(id);
+  const p = new Promise(res => { const im = new Image(); im.onload = () => { stkImg.set(id, im); res(im); }; im.onerror = () => { stkLoading.delete(id); res(null); }; im.src = "stickers/" + id + ".webp"; });
+  stkLoading.set(id, p); return p;
+}
+(() => {
+  const box = $("stkList");
+  for (const [id, name] of STICKERS) {
+    const b = document.createElement("button"); b.className = "rb stk"; b.title = name;
+    b.innerHTML = `<span class="ic"><img src="stickers/${id}-k.webp" alt=""></span><span class="lb">${esc(name)}</span>`;
+    b.onclick = () => addSticker(id); box.append(b);
+  }
+})();
+async function addSticker(id) {
+  const pg = S.page; if (!pg) return; closePanels();
+  const im = await loadSticker(id); if (!im) { toast("A matrica nem tölthető be"); return; }
+  const r = im.naturalHeight / im.naturalWidth, ph = pgH(pg);
+  let w = 45 * MM, h = w * r; if (h > 60 * MM) { h = 60 * MM; w = h / r; }
+  const vr = visRect(), x = clampN((Math.max(0, vr[0]) + Math.min(W, vr[2])) / 2 - w / 2, 0, W - w), y = clampN((Math.max(0, vr[1]) + Math.min(ph, vr[3])) / 2 - h / 2, 0, ph - h);
+  pushUndo(pg, snapshot(pg));
+  const k = { id: uid(), s: id, x, y, w, h, ts: Date.now() }; pg.stickers = pg.stickers || []; pg.stickers.push(k);
+  markDirty([x, y, x + w, y + h]); touchPage(pg);
+  setTool("stk"); showStkBar(k.id);
+  toast("Matrica a lapon: húzd a helyére, a jobb alsó sarkánál méretezd. Íráshoz válts tollra.");
+}
+function stkHit(pg, x, y) { const L = pg.stickers || []; for (let i = L.length - 1; i >= 0; i--) { const k = L[i]; if (x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h) return k; } return null; }
+const stkGrip = (k, x, y) => x > k.x + k.w - Math.max(GRIP, 9 / V.K * 2) && y > k.y + k.h - Math.max(GRIP, 9 / V.K * 2);
+function stkDrag(dx, dy) {
+  const pg = S.page, i = pg.stickers.findIndex(k => k.id === act.kid); if (i < 0) return;
+  if (!act.moved) { pg.stickers[i] = { ...pg.stickers[i] }; act.moved = true; }
+  const k = pg.stickers[i], b = [k.x, k.y, k.x + k.w, k.y + k.h], ph = pgH(pg);
+  if (act.kind === "smove") { k.x = clampN(k.x + dx, -k.w * .6, W - k.w * .4); k.y = clampN(k.y + dy, -k.h * .6, ph - k.h * .4); }
+  else { const r = k.h / k.w, nw = clampN(k.w + (dx + dy / r) / 2, 10 * MM, W); k.w = nw; k.h = nw * r; }
+  k.mt = Date.now();
+  markDirty([Math.min(b[0], k.x) - 4, Math.min(b[1], k.y) - 4, Math.max(b[2], k.x + k.w) + 4, Math.max(b[3], k.y + k.h) + 4]);
+  S.stk = k.id; placeStk();
+}
+function showStkBar(id) { S.stk = id; $("stkBar").hidden = false; placeStk(); }
+function hideStkBar() { S.stk = null; $("stkBar").hidden = true; $("stkBox").hidden = true; }
+function placeStk() {
+  const bar = $("stkBar"), box = $("stkBox"), k = S.stk && S.page && (S.page.stickers || []).find(q => q.id === S.stk);
+  if (!k) { bar.hidden = true; box.hidden = true; return; }
+  Object.assign(box.style, { left: V.tx + k.x * V.K + "px", top: V.ty + k.y * V.K + "px", width: k.w * V.K + "px", height: k.h * V.K + "px" });
+  box.hidden = false; bar.hidden = false; $("kName").textContent = stkName(k.s);
+  const br = bar.getBoundingClientRect();
+  let top = SR.top + V.ty + k.y * V.K - br.height - 10; if (top < SR.top + 6) top = SR.top + V.ty + (k.y + k.h) * V.K + 10;
+  top = clampN(top, SR.top + 6, SR.top + V.ch - br.height - 6);
+  bar.style.top = top + "px"; bar.style.left = clampN(SR.left + V.tx + (k.x + k.w / 2) * V.K - br.width / 2, SR.left + 6, SR.left + V.cw - br.width - 6) + "px";
+}
+function stkEdit(fn) {
+  const pg = S.page, i = (pg.stickers || []).findIndex(k => k.id === S.stk); if (i < 0) return;
+  pushUndo(pg, snapshot(pg)); const old = pg.stickers[i], k = pg.stickers[i] = { ...old }; fn(k, i); k.mt = Date.now();
+  markDirty([Math.min(old.x, k.x) - 4, Math.min(old.y, k.y) - 4, Math.max(old.x + old.w, k.x + k.w) + 4, Math.max(old.y + old.h, k.y + k.h) + 4]); touchPage(pg); placeStk();
+}
+$("kFront").onclick = () => stkEdit((k, i) => { const L = S.page.stickers; L.splice(i, 1); L.push(k); });
+$("kBack").onclick = () => stkEdit((k, i) => { const L = S.page.stickers; L.splice(i, 1); L.unshift(k); });
+$("kFlip").onclick = () => stkEdit(k => { k.f = !k.f; });
+$("kCopy").onclick = () => { const pg = S.page, k = (pg.stickers || []).find(q => q.id === S.stk); if (!k) return; pushUndo(pg, snapshot(pg));
+  const n = { ...k, id: uid(), x: Math.min(W - k.w, k.x + 8 * MM), y: k.y + 8 * MM, ts: Date.now() }; pg.stickers.push(n); markDirty([n.x, n.y, n.x + n.w, n.y + n.h]); touchPage(pg); showStkBar(n.id); };
+$("kDel").onclick = () => { const pg = S.page, k = (pg.stickers || []).find(q => q.id === S.stk); if (!k) return; pushUndo(pg, snapshot(pg));
+  pg.stickers = pg.stickers.filter(q => q !== k); markDirty([k.x - 4, k.y - 4, k.x + k.w + 4, k.y + k.h + 4]); touchPage(pg); hideStkBar(); toast("Matrica törölve (visszavonható)"); };
+$("kDone").onclick = () => { hideStkBar(); setTool("pen"); };
+
 /* ================= Öntapadós jegyzetcetli ================= */
 function addNote() {
   const pg = S.page; if (!pg) return;
@@ -1054,6 +1147,7 @@ $("scrim").onclick = () => { navVis = false; pagesVis = false; applyPanes(); };
 const TOOL_PANEL = { pen: "pPen", hi: "pHi", pc: "pPc", er: "pEr" };
 function setTool(t) {
   if (t !== "lasso") clearSel();
+  if (t !== "stk") hideStkBar();
   S.tool = t;
   document.querySelectorAll(".tool[data-tool]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
   renderPalette();
@@ -1265,7 +1359,7 @@ async function openPage(id, keepView) {
   const pg = await loadPage(id); if (!pg) return;
   if (S.page && S.page !== pg) persistPage(S.page, true);
   const r = secOf(id); if (r) { S.nb = r.nb; S.sec = r.sec; S.set.lastNb = r.nb.id; S.set.lastSec[r.nb.id] = r.sec.id; }
-  if (S.page !== pg) { clearSel(); hideNoteBar(); }
+  if (S.page !== pg) { clearSel(); hideNoteBar(); hideStkBar(); }
   S.page = pg; if (S.sec) S.set.lastPage[S.sec.id] = id; saveSettings();
   await ensureBg(pg); tile = null;
   if (!keepView) { V.z = 1; V.K = V.fitK; V.tx = PAD; V.ty = PAD; }
@@ -2218,7 +2312,8 @@ document.addEventListener("keydown", e => {
   else if (c && k === "0") { e.preventDefault(); $("zFitW").click(); }
   else if (e.key === "PageDown" || e.key === "ArrowRight" && e.altKey) go(1);
   else if (e.key === "PageUp" || e.key === "ArrowLeft" && e.altKey) go(-1);
-  else if (e.key === "Escape") { closePops(); clearSel(); hideNoteBar(); }
+  else if (e.key === "Escape") { closePops(); clearSel(); hideNoteBar(); hideStkBar(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && S.stk) $("kDel").click();
 });
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { checkNarrow(); layout(); }, 120); });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawPaper);

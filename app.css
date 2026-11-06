@@ -372,3 +372,13 @@ body.ribbon-off .tab[aria-selected="true"]{background:transparent;color:#fff}
 .pgrow.pdfpg{margin-left:14px}
 .pgrow.pdfpg .open{flex-direction:row;align-items:center;gap:10px;min-height:0;padding:4px 6px}
 .pgrow.pdfpg img{width:34px;height:46px;object-fit:cover;object-position:top;background:#fff;border-radius:2px;flex:none}
+/* matricák */
+.stklist{display:flex;gap:2px;align-items:stretch}
+.rb.stk{min-width:74px}
+.rb.stk .ic{height:34px}
+.rb.stk img{max-height:34px;max-width:60px;object-fit:contain;filter:drop-shadow(0 0 3px rgba(0,229,255,.35))}
+.rb.stk:hover img{filter:drop-shadow(0 0 6px rgba(0,229,255,.8))}
+#ribbon{height:76px}
+.stkbox{position:absolute;border:2px dashed var(--neon2);pointer-events:none;box-shadow:0 0 12px rgba(0,229,255,.45)}
+.stkbox::after{content:"";position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--neon2);box-shadow:0 0 8px var(--neon2)}
+.kname{color:var(--neon2);font-family:var(--fx);font-size:13px;padding:0 10px;white-space:nowrap;letter-spacing:.04em}
