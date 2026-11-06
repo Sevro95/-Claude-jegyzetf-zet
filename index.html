@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.4.0">
+<meta name="app-version" content="3.5.0">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.4.0">
+<link rel="stylesheet" href="app.css?v=3.5.0">
 </head>
 <body>
 
@@ -108,14 +108,7 @@
   </div>
   <!-- Dosszié: füzet borító + szakaszfülek -->
   <div id="dossier">
-    <div class="cover carbon">
-      <button id="nbBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Füzet váltása">
-        <span class="chip" id="nbChip"></span>
-        <span class="nbtxt"><span class="k">FÜZET · PROJEKT</span><span class="v" id="nbName">–</span></span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-    </div>
-    <div id="secTabs" class="sectabs" role="tablist" aria-label="Szakaszok"></div>
+    <div id="secTabs" class="sectabs" role="tablist" aria-label="Füzetek"></div>
     <div id="dosBand" class="band"></div>
   </div>
   <!-- Lapsor -->
@@ -123,6 +116,11 @@
     <span id="prLabel" class="prlabel">LAPOK</span>
     <div id="pgTabs" class="pgtabs"></div>
     <button id="prAdd" class="pradd"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span id="prAddTxt">Lap</span></button>
+    <div class="prviews">
+      <button id="vwPages" class="vw"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>Lapok<span id="nPages" class="n"></span></button>
+      <button id="vwGal" class="vw"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h3.2L8.6 6h6.8l1.9 2.5h3.2v10.5H3.5z"/><circle cx="12" cy="13.5" r="3.4"/></svg>Képtár<span id="nGal" class="n"></span></button>
+      <button id="vwPdf" class="vw"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 16.5h4"/></svg>PDF-ek<span id="nPdf" class="n"></span></button>
+    </div>
   </div>
 </header>
 <section id="nbMenu" class="pop menu" hidden aria-label="Füzetek"></section>
@@ -281,6 +279,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.4.0"></script>
+<script src="app.js?v=3.5.0"></script>
 </body>
 </html>

@@ -445,3 +445,17 @@ body.ribbon-off .tab[aria-selected="true"]{background:transparent;color:#fff}
 body.ribbon-off #dossier{border-top-color:transparent}
 @media (max-width:700px){#dossier .cover{width:170px}.sectabs{left:158px}.nbtxt .k{display:none}}
 .stab.sp.many:not(.on){flex:0 0 52px;min-width:52px}.stab.sp.many:not(.on) .nm,.stab.sp.many:not(.on) .sbadge{display:none}
+
+/* ===== 3.5: füzetek a füleken, 2. sorban lapok + Képtár + PDF-ek ===== */
+.sectabs{left:12px}
+.stab.nbtab{flex:0 1 190px;max-width:230px}
+.stab.nbtab.on{min-width:140px}
+.stab.nbtab .fill{font-size:13px}
+.prviews{flex:none;display:flex;align-items:center;gap:6px;padding-left:10px;margin-left:6px;border-left:1px solid #2D2246}
+.vw{height:22px;min-height:0;border:1px solid #3A2C5C;border-radius:0;background:#0D0915;color:#C9BFEA;display:flex;align-items:center;gap:5px;padding:0 9px;font-size:12px;font-weight:500}
+.vw svg{width:14px;height:14px}
+.vw .n{opacity:.7;font-variant-numeric:tabular-nums}
+.vw[aria-pressed="true"]{border-color:var(--c,#C86BFF);background:color-mix(in srgb,var(--c,#C86BFF) 20%,transparent);color:#fff;font-weight:600;box-shadow:0 0 8px color-mix(in srgb,var(--c,#C86BFF) 50%,transparent)}
+.psec{flex:none;display:flex;align-items:center;padding:0 6px 0 10px;font-family:var(--fx);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--c,#C86BFF);opacity:.85;cursor:pointer;white-space:nowrap}
+.psec:not(:first-child){border-left:1px solid #3A2C5C;margin-left:4px}
+@media (max-width:700px){.vw{padding:0 6px}.vw .n{display:none}}

@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.4.0";
+const APP_VERSION = "3.5.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1087,7 +1087,7 @@ $("vNotes").onclick = () => { S.set.notesOn = !S.set.notesOn; saveSettings(); ma
 
 /* ================= Panelek és menüszalag ================= */
 const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu"];
-const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts", nbMenu: "nbBtn" };
+const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts" };
 function closePanels(except) {
   for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
 }
@@ -1361,7 +1361,7 @@ async function openPage(id, keepView) {
   if (S.page && S.page !== pg) persistPage(S.page, true);
   const r = secOf(id); if (r) { S.nb = r.nb; S.sec = r.sec; S.set.lastNb = r.nb.id; S.set.lastSec[r.nb.id] = r.sec.id; }
   if (S.page !== pg) { clearSel(); hideNoteBar(); hideStkBar(); }
-  S.page = pg; if (S.sec) S.set.lastPage[S.sec.id] = id; saveSettings();
+  S.page = pg; if (S.sec) { S.set.lastPage[S.sec.id] = id; if (!special(S.sec)) S.set.lastRegSec = S.sec.id; } saveSettings();
   await ensureBg(pg); tile = null;
   if (!keepView) { V.z = 1; V.K = V.fitK; V.tx = PAD; V.ty = PAD; }
   clampView(); render(); updUR(); renderPageList(); renderTree(); updateOpenBadge(); updTitle();
@@ -1525,53 +1525,53 @@ async function goSection(nb, sec) {
   if (sec.pdf && !sec.pages.some(p => S.pages.has(p))) { pdfEmpty(nb); return; }
   await openSection(sec);
 }
+const regSecs = nb => nb.sections.filter(s => !special(s));
 function renderDossier() {
-  const nb = S.nb; if (!nb) return;
-  $("nbName").textContent = nb.name; const nc = neon(nb.color); $("nbChip").style.background = nc; $("nbChip").style.boxShadow = "0 0 8px " + nc;
-  const box = $("secTabs"); box.textContent = "";
-  const secs = nb.sections, si = Math.max(0, secs.indexOf(S.sec)), many = secs.length > 9;
-  secs.forEach((sec, i) => {
-    const act = sec === S.sec, c = secLed(sec), dist = Math.abs(i - si), lift = act ? 0 : Math.min(8, 2 + dist * 2);
-    const b = el("button", "stab" + (act ? " on" : "") + (many ? " many" : "") + (special(sec) ? " sp" : "")); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(act));
+  const box = $("secTabs"); box.textContent = ""; const nbs = S.notebooks, ni = Math.max(0, nbs.indexOf(S.nb)), many = nbs.length > 8;
+  nbs.forEach((nb, i) => {
+    const act = nb === S.nb, c = neon(nb.color), dist = Math.abs(i - ni), lift = act ? 0 : Math.min(8, 2 + dist * 2);
+    const b = el("button", "stab nbtab" + (act ? " on" : "") + (many ? " many" : "")); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(act));
     b.style.height = (act ? 45 : 40 - lift) + "px"; b.style.zIndex = act ? 50 : 40 - dist;
     b.style.setProperty("--c", c); b.style.setProperty("--cg", rgba(c, act ? .9 : .5)); b.style.setProperty("--cl", rgba(c, act ? 1 : .8));
-    const led = el("span", "led"), fill = el("span", "fill");
-    if (sec.gal || sec.pdf) { const ic = el("span", "sic"); ic.innerHTML = sec.gal ? ICON_CAM : ICON_PDF; fill.append(ic); }
-    fill.append(el("span", "nm", sec.name));
-    const oc = secOpenCount(sec); if (oc) { const bd = el("span", "sbadge", String(oc)); fill.append(bd); }
-    const cnt = sec.gal ? sec.pages.length : sec.pdf ? pdfDocsOf(sec).length : 0;
-    b.title = sec.name + (cnt ? " (" + cnt + ")" : "") + (act && !special(sec) ? " – koppints újra a beállításokhoz" : "");
+    const led = el("span", "led"), fill = el("span", "fill"); fill.append(el("span", "nm", nb.name));
+    const oc = nbOpenCount(nb); if (oc) fill.append(el("span", "sbadge", String(oc)));
+    b.title = nb.name + (act ? " – koppints újra a füzet beállításaihoz" : "");
     led.append(fill); b.append(led);
-    b.onclick = () => { if (act) { if (!special(sec)) sectionDialog(nb, sec); return; } goSection(nb, sec); };
+    b.onclick = () => act ? notebookDialog(nb) : openNotebook(nb.id);
     box.append(b);
   });
-  const add = el("button", "stab add"); add.setAttribute("aria-label", "Új szakasz"); add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-  add.onclick = () => sectionDialog(nb, null);
-  // az „Új szakasz” a jegyzetszakaszok után, a Képtár és a PDF-ek előtt
-  const firstSpecial = [...box.children].find((x, i) => special(secs[i]));
-  box.insertBefore(add, firstSpecial || null);
-  const ac = S.sec ? secLed(S.sec) : "#C86BFF"; $("dosBand").style.setProperty("--c", ac); $("dosBand").style.setProperty("--cg", rgba(ac, .55));
-  $("pageRow").style.setProperty("--c", ac);
+  const add = el("button", "stab add"); add.setAttribute("aria-label", "Új füzet"); add.title = "Új füzet";
+  add.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'; add.onclick = () => notebookDialog(null); box.append(add);
+  const ac = S.nb ? neon(S.nb.color) : "#C86BFF";
+  $("dosBand").style.setProperty("--c", ac); $("dosBand").style.setProperty("--cg", rgba(ac, .55)); $("pageRow").style.setProperty("--c", ac);
   const on = box.querySelector(".stab.on"); if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 function renderPageRow() {
-  const sec = S.sec; if (!sec) return; const box = $("pgTabs"); box.textContent = "";
-  $("prLabel").textContent = sec.gal ? "KÉPEK" : sec.pdf ? "PDF" : "LAPOK"; $("prAddTxt").textContent = sec.gal ? "Kép" : sec.pdf ? "PDF" : "Lap";
-  const items = [];
-  if (sec.pdf) for (const pages of pdfDocsOf(sec)) pages.forEach((pg, i) => items.push({ pg, no: (pg.bg && pg.bg.pn ? pg.bg.pn : i + 1) + ".", t: docName(pages[0]) }));
-  else sec.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg) items.push({ pg, no: (i + 1) + ".", t: pageLabel(pg) }); });
-  for (const it of items) {
-    const cur = S.page === it.pg, b = el("button", "ptab" + (cur ? " on" : ""));
-    b.setAttribute("aria-current", String(cur)); b.title = it.t + (cur ? " – koppints újra a lap adataihoz" : "");
-    b.append(el("span", "no", it.no), el("span", "t", it.t));
-    if (openCountOf(it.pg)) b.append(el("span", "dot"));
-    b.onclick = () => cur ? pageDialog(it.pg) : openPage(it.pg.id);
-    box.append(b);
+  const sec = S.sec, nb = S.nb; if (!sec || !nb) return; const box = $("pgTabs"); box.textContent = "";
+  const view = sec.gal ? "gal" : sec.pdf ? "pdf" : "pages";
+  $("prLabel").textContent = view === "gal" ? "KÉPEK" : view === "pdf" ? "PDF" : "LAPOK"; $("prAddTxt").textContent = view === "gal" ? "Kép" : view === "pdf" ? "PDF" : "Lap";
+  const g = galOf(nb), pd = pdfOf(nb), regs = regSecs(nb);
+  $("nPages").textContent = regs.reduce((a, s) => a + s.pages.length, 0); $("nGal").textContent = g ? g.pages.length : 0; $("nPdf").textContent = pd ? pdfDocsOf(pd).length : 0;
+  for (const [id, v] of [["vwPages", "pages"], ["vwGal", "gal"], ["vwPdf", "pdf"]]) $(id).setAttribute("aria-pressed", String(view === v));
+  const add = (pg, no, t) => {
+    const cur = S.page === pg, b = el("button", "ptab" + (cur ? " on" : ""));
+    b.setAttribute("aria-current", String(cur)); b.title = t + (cur ? " – koppints újra a lap adataihoz" : "");
+    b.append(el("span", "no", no), el("span", "t", t)); if (openCountOf(pg)) b.append(el("span", "dot"));
+    b.onclick = () => cur ? pageDialog(pg) : openPage(pg.id); box.append(b);
+  };
+  if (view === "pdf") { for (const pages of pdfDocsOf(sec)) pages.forEach((pg, i) => add(pg, (pg.bg && pg.bg.pn ? pg.bg.pn : i + 1) + ".", docName(pages[0]))); }
+  else if (view === "gal") sec.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg) add(pg, (i + 1) + ".", pageLabel(pg)); });
+  else for (const s of regs) {
+    if (regs.length > 1) { const d = el("span", "psec", s.name); d.title = "Szakasz: " + s.name + " – koppints a beállításokhoz"; d.onclick = () => sectionDialog(nb, s); box.append(d); }
+    s.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg) add(pg, (i + 1) + ".", pageLabel(pg)); });
   }
   const on = box.querySelector(".ptab.on"); if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+$("vwPages").onclick = () => { const nb = S.nb, regs = regSecs(nb); const s = regs.find(x => x.id === S.set.lastRegSec) || regs[0]; if (s) goSection(nb, s); };
+$("vwGal").onclick = () => { const g = galOf(S.nb); if (g) goSection(S.nb, g); };
+$("vwPdf").onclick = () => { const p = pdfOf(S.nb); if (p) goSection(S.nb, p); };
 $("prAdd").onclick = () => $("pgAdd").click();
-$("nbBtn").onclick = () => {
+if ($("nbBtn")) $("nbBtn").onclick = () => {
   const m = $("nbMenu"); m.textContent = "";
   m.append(el("div", "mhead", "Füzetek"));
   for (const nb of S.notebooks) {
