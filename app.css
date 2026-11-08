@@ -479,3 +479,38 @@ body.ribbon-off #dossier{border-top-color:transparent}
 .aicard .meta{font-size:12px;color:var(--muted)}
 .aicard .s{font-size:13px;color:var(--fg);line-height:1.4}
 .aicard .c{font-size:12px;color:var(--accent);font-weight:600}
+
+/* Hangfelvétel */
+#bRec.on{background:rgba(255,79,109,.16);box-shadow:inset 0 0 0 1px #ff4f6d}
+#bRec.on .ic svg{stroke:#ff4f6d}
+#recBar{position:fixed;z-index:40;top:calc(var(--recTop,118px));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:5px 6px 5px 14px;border-radius:999px;background:#1c142d;border:1px solid #ff4f6d;box-shadow:0 8px 24px rgba(0,0,0,.35);color:#fff;font-weight:600;letter-spacing:.04em;font-size:13.5px;white-space:nowrap}
+#recBar .dot{width:11px;height:11px;border-radius:50%;background:#ff4f6d;box-shadow:0 0 10px #ff4f6d;animation:recblink 1.2s infinite}
+@keyframes recblink{50%{opacity:.35}}
+#recBar button{min-height:40px;padding:0 13px;border-radius:999px;border:1px solid #4a3a66;background:transparent;color:#ece6f6;font-size:13px;font-weight:500}
+#recBar button.stop{background:#ff4f6d;border-color:#ff4f6d;color:#fff;font-weight:600}
+#playBar{position:fixed;z-index:40;left:0;right:0;bottom:0;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(180deg,#1c142d,#150f22);border-top:1px solid rgba(200,107,255,.45);display:flex;flex-direction:column;gap:8px;color:#ece6f6}
+#playBar .pl-ctl{gap:8px;align-items:center}
+#playBar button{min-height:42px;min-width:44px;padding:0 12px;border-radius:8px;border:1px solid #4a3a66;background:transparent;color:#ece6f6;font-size:13px}
+#playBar button.pp{width:48px;height:48px;border-radius:50%;border:0;background:#c86bff;color:#120c1d;display:flex;align-items:center;justify-content:center;padding:0}
+#playBar button.pp svg{width:20px;height:20px}
+#plTime{font-weight:600;font-variant-numeric:tabular-nums;margin-left:4px}
+#playBar .sp{flex:1}
+#plTrack{position:relative;height:30px;border-radius:6px;background:#0f0a18;cursor:pointer;overflow:hidden}
+#plFill{position:absolute;left:0;top:0;bottom:0;background:rgba(200,107,255,.35);pointer-events:none}
+#plMarks{position:absolute;inset:0}
+#plMarks .plm{position:absolute;top:0;bottom:0;width:14px;min-width:14px;min-height:0;margin-left:-7px;padding:0;border:0;background:transparent}
+#plMarks .plm::after{content:"";position:absolute;left:6px;top:3px;bottom:3px;width:2px;background:#22d3ee;border-radius:1px}
+#plMarks .plm.here::after{background:#fff;box-shadow:0 0 6px #fff}
+#recPanel{width:min(420px,calc(100vw - 16px))}
+.reccard{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:8px;background:var(--ribbon);border:1px solid var(--line)}
+.reccard .t{font-weight:600;font-size:14px}
+.reccard .meta{font-size:12px;color:var(--muted)}
+.reccard .btns{display:flex;flex-wrap:wrap;gap:6px}
+.reccard .btns .tb{min-height:36px;padding:0 10px;font-size:12.5px;border:1px solid var(--line)}
+.reccard .btns .dan-t{color:#ff8197}
+.trbox{max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.45}
+.trl{display:flex;gap:8px;align-items:baseline}
+.trl .tt{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none;min-height:0;padding:0;background:none;border:0}
+.trl button.tt{color:var(--accent);text-decoration:underline;cursor:pointer}
+.trl.interim{color:var(--muted);font-style:italic}
+.ai-chip.tbtn{border:0;cursor:pointer;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);min-height:0}

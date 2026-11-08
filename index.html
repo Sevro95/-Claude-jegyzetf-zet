@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.7.0">
+<meta name="app-version" content="3.8.0">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.7.0">
+<link rel="stylesheet" href="app.css?v=3.8.0">
 </head>
 <body>
 
@@ -63,6 +63,9 @@
       <button class="rb" id="impHere"><span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/></svg></span><span class="lb">Kép a lap hátterére</span></button>
       <span class="rsep"></span>
       <button class="rb" id="bNote"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Öntapadós jegyzetcetli</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bRec"><span class="ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></span><span class="lb">Hangfelvétel</span></button>
+      <button class="rb" id="bRecList" aria-expanded="false"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span><span class="lb">Felvételek</span></button>
       <span class="rsep"></span>
       <button class="rb tool" data-tool="box"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg></span><span class="lb">Feladat</span></button>
       <button class="rb tool" data-tool="q"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H10l-4 4v-4H4z"/><path d="M10 8.6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.7M12 13.6v.1"/></svg></span><span class="lb">Kérdés</span></button>
@@ -276,6 +279,32 @@
   <p class="note">Koppintásra a lapjára ugrik, és megmutatja az elemzést. A mentés a listában lévő elemzéseket tartalmazza, lapkép nélkül.</p>
 </section>
 
+<!-- Felvételek panel -->
+<section id="recPanel" class="pop tall" hidden aria-label="Hangfelvételek">
+  <div class="row between nowrap"><h2>Hangfelvételek</h2>
+    <button id="recClose" class="icon" aria-label="Panel bezárása"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="seg"><button id="recLive" aria-pressed="false">Élő átirat: KI</button><button id="recMarksT" aria-pressed="true">Jelek a margón: BE</button></div>
+  <div id="recLiveWrap" hidden><strong class="note">Élő átirat</strong><div id="recLiveBox" class="trbox"></div></div>
+  <div class="list" id="recListBox"></div>
+  <p class="note">A felvétel ezen az eszközön tárolódik (a Drive-ra még nem kerül fel). Az élő átirat a böngésző beszédfelismerése, internet kell hozzá; vázlatos, a felvétel a mérvadó. A margón a lila jelre koppintva onnan szól a felvétel.</p>
+</section>
+
+<!-- Felvételsáv és lejátszósáv -->
+<div id="recBar" hidden role="status"><span class="dot"></span><span id="recTime">FELVÉTEL 0:00</span>
+  <button id="recPause">Szünet</button><button id="recBarList">Átirat</button><button id="recStop" class="stop">Leállítás</button></div>
+<div id="playBar" hidden>
+  <div class="row nowrap pl-ctl">
+    <button id="plBack" aria-label="Vissza 10 másodpercet">−10 mp</button>
+    <button id="plPlay" class="pp" aria-label="Lejátszás"></button>
+    <button id="plFwd" aria-label="Előre 10 másodpercet">+10 mp</button>
+    <span id="plTime">0:00 / 0:00</span>
+    <span class="sp"></span>
+    <button id="plRate">1×</button>
+    <button id="plClose" aria-label="Lejátszó bezárása">×</button>
+  </div>
+  <div id="plTrack"><div id="plFill"></div><div id="plMarks"></div></div>
+</div>
+
 <!-- Névjegyek panel -->
 <section id="contacts" class="pop tall" hidden aria-label="Projekt névjegyei">
   <div class="row between nowrap"><h2 id="ctTitle">Névjegyek</h2>
@@ -297,6 +326,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.7.0"></script>
+<script src="app.js?v=3.8.0"></script>
 </body>
 </html>

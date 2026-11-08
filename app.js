@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.7.0";
+const APP_VERSION = "3.8.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -80,7 +80,7 @@ const DEF_SET = {
   penSlot: 0, hiSlot: 0,
   recentW: { pen: [], hi: [], pc: [] }, favW: { pen: null, hi: null, pc: null }, pcW: 2.2, pcHard: "HB",
   lastNb: null, lastSec: {}, lastPage: {}, clientId: "", driveOn: false,
-  aiUrl: "", aiToken: "", aiModel: "claude-sonnet-5-5",
+  aiUrl: "", aiToken: "", aiModel: "claude-sonnet-5-5", recMarks: true, recLive: false,
   tab: "draw", ribbonOff: false, navOn: true, pagesOn: true, notesOn: true, navOpen: {}, noteColor: NOTE_COLORS[0],
 };
 const S = {
@@ -479,7 +479,7 @@ function paintInk(x, pg, clip, notes = true) {
   if (notes) for (const n of pg.notes || []) { if (clip && !overlap(noteRect(n), clip)) continue; drawNote(x, n, clip); }
 }
 const clipPage = (x, pg) => { x.beginPath(); x.rect(0, 0, W, pgH(pg)); x.clip(); };
-function drawInk() { dirty = null; clearCtx(xI, cI); const pg = S.page; if (!pg) return; xI.save(); clipPage(xI, pg); paintInk(xI, pg, visRect(), S.set.notesOn); xI.restore(); }
+function drawInk() { dirty = null; clearCtx(xI, cI); const pg = S.page; if (!pg) return; xI.save(); clipPage(xI, pg); paintInk(xI, pg, visRect(), S.set.notesOn); paintRecMarks(xI, pg); xI.restore(); }
 /* Csak a megváltozott terület újrarajzolása (radír, lasszós mozgatás, kész feladat kihúzása, cetli) */
 let dirty = null, dirtyRaf = 0;
 function markDirty(r) {
@@ -492,7 +492,7 @@ function redrawRegion(r) {
   const a = Math.max(0, vr[0], r[0] - 6), b = Math.max(0, vr[1], r[1] - 6), c = Math.min(W, vr[2], r[2] + 6), d = Math.min(pgH(pg), vr[3], r[3] + 6);
   if (c <= a || d <= b) return;
   setViewT(xI); xI.save(); xI.beginPath(); xI.rect(a, b, c - a, d - b); xI.clip(); xI.clearRect(a, b, c - a, d - b);
-  paintInk(xI, pg, [a, b, c, d], S.set.notesOn); xI.restore();
+  paintInk(xI, pg, [a, b, c, d], S.set.notesOn); paintRecMarks(xI, pg); xI.restore();
 }
 const strokeRect = s => { const k = reach(s); return [s.bb[0] - k, s.bb[1] - k, s.bb[2] + k, s.bb[3] + k]; };
 function doneRowsTouching(pg, bb) {
@@ -698,6 +698,7 @@ function gestEnd(e) {
 cL.addEventListener("pointerdown", e => {
   if (e.pointerType === "touch") {
     if (act || Date.now() < penUntil) return; // tenyérfelismerés
+    recTap = touches.size ? null : { id: e.pointerId, cx: e.clientX, cy: e.clientY, t: Date.now(), p: ptOf(e) };
     touches.set(e.pointerId, stagePt(e)); capture(e); gestStart(); return;
   }
   if (e.pointerType === "mouse" && e.button === 1) { e.preventDefault(); touches.clear(); touches.set(e.pointerId, stagePt(e)); capture(e); gestStart(); gest.mouse = true; return; }
@@ -709,6 +710,7 @@ cL.addEventListener("pointerdown", e => {
   if (e.pointerType === "pen") penUntil = Date.now() + 800;
   const pg = S.page; if (!pg) return;
   const [x, y] = ptOf(e), id = e.pointerId, er = S.tool === "er" || isEraserEvt(e);
+  if (!er && S.tool !== "lasso") { const mk = recMarkAt(pg, x, y); if (mk) { playRec(mk.rec, mk.off); return; } }
   const nh = S.set.notesOn ? noteHit(pg, x, y) : null;
   if (S.note && (!nh || nh.n.id !== S.note)) hideNoteBar();
   if (nh && !er && nh.part !== "body") { clearSel(); act = { kind: nh.part === "head" ? "nmove" : "nsize", id, nid: nh.n.id, lx: x, ly: y, sx: e.clientX, sy: e.clientY, snap: snapshot(pg), moved: false }; return; }
@@ -834,6 +836,9 @@ cL.addEventListener("lostpointercapture", e => {
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden && act) recoverAct("háttérbe került"); });
 cL.addEventListener("pointerup", endPointer);
+cL.addEventListener("pointerup", e => { const t = recTap; recTap = null;
+  if (!t || t.id !== e.pointerId || Date.now() - t.t > 450 || Math.hypot(e.clientX - t.cx, e.clientY - t.cy) > 10 || !S.page) return;
+  const mk = recMarkAt(S.page, t.p[0], t.p[1]); if (mk) playRec(mk.rec, mk.off); });
 cL.addEventListener("pointercancel", e => {
   if (touches.has(e.pointerId)) { gestEnd(e); return; }
   if (act && act.kind === "draw" && e.pointerId === act.id) endPointer(e); else if (act && e.pointerId === act.id) { act = null; clearLive(); }
@@ -1091,8 +1096,8 @@ function markViewBtns() {
 $("vNotes").onclick = () => { S.set.notesOn = !S.set.notesOn; saveSettings(); markViewBtns(); if (!S.set.notesOn) hideNoteBar(); drawInk(); toast(S.set.notesOn ? "Jegyzetcetlik látszanak" : "Jegyzetcetlik elrejtve (a lapon megmaradnak)"); };
 
 /* ================= Panelek és menüszalag ================= */
-const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu", "aiPanel"];
-const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts", aiPanel: "bAiList" };
+const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu", "aiPanel", "recPanel"];
+const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts", aiPanel: "bAiList", recPanel: "bRecList" };
 function closePanels(except) {
   for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
 }
@@ -2438,19 +2443,249 @@ function aiShow(pg, ai) {
 $("bAiSet").onclick = () => { settingsDialog(); setTimeout(() => { const f = document.getElementById("aiUrl"); if (f) f.scrollIntoView({ block: "center" }); }, 60); };
 $("bAi").onclick = () => { const pg = S.page; if (!pg) return; if (pg.ai && pg.ai.res) aiShow(pg, pg.ai); else aiRun(pg); };
 
+/* ================= Hangfelvétel a vonalakhoz kötve ================= */
+// Metaadat: kv "recs" = [{id, nb, start, end, segs:[{t0,t1,off}], dur, type, size, tr:[{off,text}], sum}]; hang: blobs "rec-<id>"
+let recTap = null, RECS = [], recNow = null, recMarkCache = { pid: null, list: [] };
+const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(ss).padStart(2, "0"); };
+const saveRecs = () => DB.put("kv", RECS, "recs").catch(e => logError("felvétel-mentés", e && e.message));
+async function loadRecs() { try { RECS = (await DB.get("kv", "recs")) || []; } catch (_) { RECS = []; } }
+const SRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+function recOffset(r, ts) { // falióra → hangbeli idő (ms); szünet alatt a szakasz végére esik
+  for (const g of r.segs) { const t1 = g.t1 || Date.now(); if (ts >= g.t0 - 1500 && ts <= t1 + 1500) return Math.max(0, g.off + Math.min(ts, t1) - g.t0); }
+  return null;
+}
+function recsForNb(nbId) { return RECS.filter(r => r.nb === nbId).concat(recNow && recNow.r.nb === nbId && !RECS.includes(recNow.r) ? [recNow.r] : []); }
+function recMarksOf(pg) { // soronként egy jel: a sor legkorábbi, felvétel alatt írt vonala
+  const rs = recsForNb(pg.nb); if (!rs.length) return [];
+  const hits = [];
+  for (const s of pg.strokes) { if (!s.ts || !s.bb) continue; for (const r of rs) { const off = recOffset(r, s.ts); if (off != null) { hits.push({ s, r, off }); break; } } }
+  hits.sort((a, b) => a.s.bb[1] - b.s.bb[1]);
+  const rows = [];
+  for (const h of hits) { const last = rows[rows.length - 1], top = h.s.bb[1], bot = h.s.bb[3];
+    if (last && top < last.bot - 4 * MM * .4) { last.bot = Math.max(last.bot, bot); if (h.off < last.off && h.r === last.r) last.off = h.off; last.top = Math.min(last.top, top); }
+    else rows.push({ top, bot, off: h.off, r: h.r }); }
+  return rows;
+}
+function paintRecMarks(x, pg) {
+  recMarkCache = { pid: pg.id, list: [] };
+  if (!S.set.recMarks) return;
+  const rows = recMarksOf(pg); if (!rows.length) return;
+  const w = 11 * MM, h = 4.4 * MM, x0 = .8 * MM;
+  x.save(); x.font = `600 ${2.9 * MM}px system-ui, sans-serif`; x.textBaseline = "middle";
+  for (const row of rows) {
+    const y0 = Math.max(0, (row.top + row.bot) / 2 - h / 2);
+    x.fillStyle = "rgba(122,63,176,.92)"; x.beginPath(); if (x.roundRect) x.roundRect(x0, y0, w, h, h / 2); else x.rect(x0, y0, w, h); x.fill();
+    x.fillStyle = "#fff"; x.beginPath(); x.moveTo(x0 + 1.6 * MM, y0 + h * .25); x.lineTo(x0 + 1.6 * MM, y0 + h * .75); x.lineTo(x0 + 3.2 * MM, y0 + h / 2); x.closePath(); x.fill();
+    x.fillText(fmtDur(row.off), x0 + 3.9 * MM, y0 + h / 2 + .2 * MM);
+    recMarkCache.list.push({ x0, y0, x1: x0 + w, y1: y0 + h, rec: row.r, off: row.off });
+  }
+  x.restore();
+}
+function recMarkAt(pg, x, y) {
+  if (!pg || recMarkCache.pid !== pg.id) return null; const pad = 1.5 * MM;
+  return recMarkCache.list.find(m => x >= m.x0 - pad && x <= m.x1 + pad && y >= m.y0 - pad && y <= m.y1 + pad) || null;
+}
+function recFinishOrphans() { let ch = false; for (const r of RECS) if (!r.end) { const g = r.segs[r.segs.length - 1]; if (g && !g.t1) g.t1 = g.t0 + Math.max(0, (r.dur || 0) - g.off); r.end = r.end || g.t1 || r.start; ch = true; } if (ch) saveRecs(); }
+/* --- Felvétel --- */
+function recMime() { const c = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]; for (const t of c) { try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; } catch (_) {} } return ""; }
+async function recStart() {
+  if (recNow) return;
+  if (!navigator.mediaDevices || !window.MediaRecorder) { dialog("Hangfelvétel", "<p>Ez a böngésző nem támogatja a hangfelvételt.</p>", [["Bezár", "pri"]]); return; }
+  if (!S.nb) return;
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch (e) { dialog("Hangfelvétel", `<p>A mikrofon nem érhető el (${esc(e.name || e.message)}). Engedélyezd a mikrofont a böngésző címsorában a lakat ikonnál, majd próbáld újra.</p>`, [["Bezár", "pri"]]); return; }
+  const type = recMime(); let mr;
+  try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined); } catch (e) { mr = new MediaRecorder(stream); }
+  const now = Date.now(), r = { id: uid(), nb: S.nb.id, start: now, end: null, segs: [{ t0: now, t1: null, off: 0 }], dur: 0, type: mr.mimeType || type || "audio/webm", size: 0, tr: [] };
+  recNow = { r, mr, stream, chunks: [], paused: false, timer: 0, saveT: 0, sr: null, srOn: false, interim: "", wake: null };
+  mr.ondataavailable = e => { if (e.data && e.data.size) recNow && recNow.chunks.push(e.data); };
+  mr.start(1000);
+  try { if (navigator.wakeLock) recNow.wake = await navigator.wakeLock.request("screen"); } catch (_) {}
+  recNow.timer = setInterval(recTick, 500);
+  recNow.saveT = setInterval(() => recPersist(false), 30000);
+  RECS.push(r); saveRecs();
+  $("recBar").style.top = ($("top").getBoundingClientRect().bottom + 8) + "px"; $("recBar").hidden = false; recTick(); markRecBtn(); drawInk();
+  if (S.set.recLive) srStart();
+  toast("Felvétel elindult");
+}
+function recElapsed(r) { let t = 0; for (const g of r.segs) t += (g.t1 || Date.now()) - g.t0; return t; }
+function recTick() { if (!recNow) return; $("recTime").textContent = (recNow.paused ? "SZÜNET " : "FELVÉTEL ") + fmtDur(recElapsed(recNow.r));
+  const pg = S.page, k = pg ? pg.id + ":" + pg.strokes.length : ""; if (k !== recNow.lastK && !act) { recNow.lastK = k; if (S.set.recMarks) drawInk(); } }
+async function recPersist(final) {
+  if (!recNow) return; const { r, chunks } = recNow; if (!chunks.length) return;
+  const blob = new Blob(chunks, { type: r.type }); r.size = blob.size; r.dur = recElapsed(r);
+  try { await DB.put("blobs", blob, "rec-" + r.id); saveRecs(); } catch (e) { logError("felvétel-mentés", e && e.message); if (final) toast("A felvétel mentése nem sikerült: " + e.message); }
+}
+function recPause() {
+  if (!recNow) return; const n = recNow, g = n.r.segs[n.r.segs.length - 1];
+  if (!n.paused) { try { n.mr.pause(); } catch (_) {} g.t1 = Date.now(); n.paused = true; srStop(); }
+  else { try { n.mr.resume(); } catch (_) {} n.r.segs.push({ t0: Date.now(), t1: null, off: recElapsed(n.r) }); n.paused = false; if (S.set.recLive) srStart(); }
+  $("recPause").textContent = n.paused ? "Folytatás" : "Szünet"; recTick(); saveRecs();
+}
+async function recStop() {
+  if (!recNow) return; const n = recNow;
+  srStop(); clearInterval(n.timer); clearInterval(n.saveT);
+  const g = n.r.segs[n.r.segs.length - 1]; if (!g.t1) g.t1 = Date.now();
+  await new Promise(res => { n.mr.onstop = res; try { n.mr.stop(); } catch (_) { res(); } setTimeout(res, 3000); });
+  n.stream.getTracks().forEach(t => t.stop()); try { n.wake && n.wake.release(); } catch (_) {}
+  n.r.end = Date.now(); await recPersist(true);
+  recNow = null; $("recBar").hidden = true; markRecBtn(); drawInk();
+  if (!$("recPanel").hidden) renderRecList();
+  toast("Felvétel mentve · " + fmtDur(n.r.dur) + " · " + fmtBytes(n.r.size));
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden && recNow) recPersist(false); });
+function markRecBtn() { const b = $("bRec"); b.classList.toggle("on", !!recNow); b.querySelector(".lb").textContent = recNow ? "Felvétel leállítása" : "Hangfelvétel"; }
+/* --- Élő átirat (a böngésző beszédfelismerése) --- */
+function srStart() {
+  if (!recNow || recNow.paused || recNow.srOn) return;
+  if (!SRec) { toast("Ez a böngésző nem támogatja az élő átiratot"); return; }
+  const n = recNow, sr = new SRec(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
+  sr.onresult = ev => { let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) { const res = ev.results[i], t = res[0].transcript.trim(); if (!t) continue;
+      if (res.isFinal) { n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t }); saveRecs(); } else interim += t + " "; }
+    n.interim = interim.trim(); renderLive(); };
+  sr.onerror = ev => { if (ev.error === "no-speech" || ev.error === "aborted") return;
+    n.srOn = false; S.set.recLive = false; saveSettings(); markLive(); toast("Az élő átirat leállt (" + ev.error + "). A hangfelvétel megy tovább."); };
+  sr.onend = () => { if (recNow === n && n.srOn && !n.paused) setTimeout(() => { try { sr.start(); } catch (_) {} }, 300); };
+  n.sr = sr; n.srOn = true; try { sr.start(); } catch (e) { n.srOn = false; }
+  markLive();
+}
+function srStop() { if (!recNow || !recNow.sr) return; recNow.srOn = false; try { recNow.sr.stop(); } catch (_) {} recNow.interim = ""; }
+function markLive() { const b = $("recLive"); b.setAttribute("aria-pressed", String(!!S.set.recLive)); b.textContent = S.set.recLive ? "Élő átirat: BE" : "Élő átirat: KI"; }
+function renderLive() { if ($("recPanel").hidden || !recNow) return; const box = $("recLiveBox"); if (!box) return;
+  box.textContent = ""; for (const t of recNow.r.tr.slice(-12)) { const d = el("div", "trl"); d.append(el("span", "tt", fmtDur(t.off)), el("span", null, t.text)); box.append(d); }
+  if (recNow.interim) box.append(el("div", "trl interim", recNow.interim)); box.scrollTop = box.scrollHeight; }
+/* --- Lejátszás --- */
+let PL = null;
+async function playRec(r, off) {
+  const blob = await DB.get("blobs", "rec-" + r.id);
+  if (!blob) { toast(recNow && recNow.r === r ? "A felvétel még fut – leállítás után hallgatható vissza" : "A felvétel nincs ezen az eszközön"); return; }
+  if (!PL || PL.r !== r) { plClose(); const a = new Audio(URL.createObjectURL(blob)); a.preload = "auto"; PL = { r, a, rate: 1 };
+    a.ontimeupdate = plUpd; a.onplay = a.onpause = plUpd; a.onloadedmetadata = plUpd; plMarks(); }
+  $("playBar").hidden = false;
+  const go = () => { try { PL.a.currentTime = Math.max(0, (off || 0) / 1000 - 1); } catch (_) {} PL.a.play().catch(e => toast("Lejátszás: " + e.message)); };
+  if (PL.a.readyState >= 1) go(); else PL.a.addEventListener("loadedmetadata", go, { once: true });
+}
+function plDur() { const d = PL && PL.a.duration; return isFinite(d) && d > 0 ? d * 1000 : (PL ? PL.r.dur : 0); }
+function plUpd() { if (!PL) return; const t = PL.a.currentTime * 1000, d = plDur();
+  $("plTime").textContent = fmtDur(t) + " / " + fmtDur(d); $("plFill").style.width = (d ? Math.min(100, t / d * 100) : 0) + "%";
+  $("plPlay").innerHTML = PL.a.paused ? '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
+  $("plPlay").setAttribute("aria-label", PL.a.paused ? "Lejátszás" : "Szünet"); }
+async function plMarks() { // a sávon: hol írtál a felvétel közben (a füzet összes lapján)
+  const box = $("plMarks"); box.textContent = ""; if (!PL) return; const r = PL.r, nb = nbOf(r.nb); if (!nb) return;
+  await loadNotebookPages(nb); const d = plDur() || r.dur || 1;
+  for (const id of nbPages(nb)) { const pg = S.pages.get(id); if (!pg) continue;
+    for (const row of recMarksOf(pg)) { if (row.r !== r) continue; const b = el("button", "plm" + (S.page === pg ? " here" : ""));
+      b.style.left = Math.min(100, row.off / d * 100) + "%"; b.setAttribute("aria-label", "Írás itt: " + fmtDur(row.off) + " · " + pageNoOf(pg) + ". lap");
+      b.onclick = async e => { e.stopPropagation(); if (S.page !== pg) { if (S.nb !== nb) await openNotebook(nb.id, pg.id); else await openPage(pg.id); }
+        V.ty = -row.top * V.K + 120; clampView(); render(); PL.a.currentTime = Math.max(0, row.off / 1000 - 1); PL.a.play().catch(() => {}); plMarks(); };
+      box.append(b); } }
+}
+function plClose() { if (!PL) return; try { PL.a.pause(); URL.revokeObjectURL(PL.a.src); } catch (_) {} PL = null; $("playBar").hidden = true; }
+$("plPlay").onclick = () => { if (!PL) return; PL.a.paused ? PL.a.play().catch(() => {}) : PL.a.pause(); };
+$("plBack").onclick = () => { if (PL) PL.a.currentTime = Math.max(0, PL.a.currentTime - 10); };
+$("plFwd").onclick = () => { if (PL) PL.a.currentTime = Math.min(PL.a.duration || 1e9, PL.a.currentTime + 10); };
+$("plRate").onclick = () => { if (!PL) return; const R = [1, 1.25, 1.5, 2]; PL.rate = R[(R.indexOf(PL.rate) + 1) % R.length]; PL.a.playbackRate = PL.rate; $("plRate").textContent = PL.rate + "×"; };
+$("plClose").onclick = plClose;
+$("plTrack").onclick = e => { if (!PL) return; const b = $("plTrack").getBoundingClientRect(); PL.a.currentTime = Math.max(0, (e.clientX - b.left) / b.width * plDur() / 1000); };
+/* --- Felvételek panel --- */
+function renderRecList() {
+  const box = $("recListBox"); box.textContent = "";
+  $("recLiveWrap").hidden = !recNow; if (recNow) renderLive();
+  const list = RECS.filter(r => S.nb && r.nb === S.nb.id && (!recNow || recNow.r !== r)).sort((a, b) => b.start - a.start);
+  for (const r of list) {
+    const c = el("div", "reccard");
+    c.append(el("span", "t", new Date(r.start).toLocaleString("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })));
+    c.append(el("span", "meta", fmtDur(r.dur) + " · " + fmtBytes(r.size || 0) + " · " + (r.tr && r.tr.length ? r.tr.length + " átirat-részlet" : "nincs átirat") + (r.sum ? " · van összefoglaló" : "")));
+    const row = el("div", "btns");
+    const b = (t, fn, cls) => { const x = el("button", "tb" + (cls ? " " + cls : ""), t); x.onclick = fn; row.append(x); };
+    b("Lejátszás", () => { closePanels(); playRec(r, 0); });
+    b(r.sum ? "Összefoglaló" : "Összefoglaló (Claude)", () => recSummary(r));
+    if (r.tr && r.tr.length) b("Átirat", () => recTranscript(r));
+    b("Letöltés", async () => { const bl = await DB.get("blobs", "rec-" + r.id); if (!bl) { toast("A hangfájl nincs ezen az eszközön"); return; }
+      downloadBlob(bl, `${safeName(S.nb.name)} – felvétel ${new Date(r.start).toISOString().slice(0, 16).replace("T", " ").replace(":", "-")}.${/mp4/.test(r.type) ? "m4a" : /ogg/.test(r.type) ? "ogg" : "webm"}`); });
+    b("Törlés", () => dialog("Felvétel törlése", `<p>A ${fmtDur(r.dur)} hosszú felvétel és az átirata törlődik erről az eszközről. Ez nem vonható vissza.</p>`, [["Mégse"], ["Törlés", "dan", async () => {
+      if (PL && PL.r === r) plClose(); RECS = RECS.filter(x => x !== r); saveRecs(); try { await DB.del("blobs", "rec-" + r.id); } catch (_) {} renderRecList(); drawInk(); }]]), "dan-t");
+    c.append(row); box.append(c);
+  }
+  if (!list.length) box.append(el("div", "empty", "Ebben a füzetben még nincs hangfelvétel."));
+  $("recMarksT").setAttribute("aria-pressed", String(!!S.set.recMarks)); $("recMarksT").textContent = S.set.recMarks ? "Jelek a margón: BE" : "Jelek a margón: KI";
+}
+function recTranscript(r) {
+  const d = document.createElement("div"); d.className = "dlgbody";
+  d.innerHTML = `<p>Vázlatos átirat a böngésző beszédfelismeréséből. Az időpontra koppintva onnan szól a felvétel.</p><div class="trbox">${r.tr.map((t, i) => `<div class="trl"><button class="tt" data-i="${i}">${fmtDur(t.off)}</button><span>${esc(t.text)}</span></div>`).join("")}</div>`;
+  d.querySelectorAll("button.tt").forEach(b => b.onclick = () => { $("dlg").hidden = true; playRec(r, r.tr[+b.dataset.i].off); });
+  dialog("Átirat – " + new Date(r.start).toLocaleString("hu-HU"), d, [["Bezár", "pri"]]);
+}
+/* --- Összefoglaló a Claude-dal (az átiratból) --- */
+const REC_SYS = `Egy épületgépész tervező megbeszéléséről kapsz vázlatos, gépi magyar átiratot időpontokkal ([perc:mp]), és ha van, a közben írt jegyzetlapok elemzését. Az átirat hibás szavakat tartalmazhat.
+KIZÁRÓLAG egy JSON objektumot adj vissza, magyarázat és kódblokk nélkül:
+{"osszefoglalo":"2–4 mondat","dontesek":[{"szoveg":"…","t":"perc:mp"}],"feladatok":[{"szoveg":"…","felelos":null,"allapot":"nyitott","var_kitol":null,"t":"perc:mp","biztos":true}],"kerdesek":[{"szoveg":"…","t":"perc:mp"}]}
+Szabályok: csak azt írd le, ami az átiratban vagy a jegyzetben valóban elhangzik; ne találj ki nevet, számot, határidőt. "allapot": "var", ha másra várunk; "kesz", ha elkészült. Bizonytalan értelmezésnél "biztos": false. Számot, méretet csak akkor írj, ha egyértelmű.`;
+async function recSummary(r) {
+  if (r.sum && !recSummary.force) { recSumShow(r); return; }
+  recSummary.force = false;
+  if (!r.tr || !r.tr.length) { dialog("Összefoglaló", "<p>Ehhez a felvételhez nincs átirat. Az összefoglalóhoz kapcsold be az <b>Élő átiratot</b> a felvétel indításakor (Felvételek panel), mert a Claude hangot nem fogad, csak szöveget.</p>", [["Bezár", "pri"]]); return; }
+  if (!aiReady()) { dialog("Claude AI", "<p>Előbb add meg a közvetítő címét és a tokent: AI eszközök › AI beállítások.</p>", [["Bezár", "pri"]]); return; }
+  const nb = nbOf(r.nb); if (nb) await loadNotebookPages(nb);
+  const notes = nb ? nbPages(nb).map(id => S.pages.get(id)).filter(pg => pg && pg.ai && pg.ai.res && pg.strokes.some(s => s.ts && recOffset(r, s.ts) != null))
+    .map(pg => `${pageNoOf(pg)}. lap${pg.title ? " – " + pg.title : ""}: ${pg.ai.res.osszefoglalo || ""}`).join("\n") : "";
+  const text = `Füzet: ${nb ? nb.name : "?"} · ${new Date(r.start).toLocaleString("hu-HU")} · ${fmtDur(r.dur)}\n\nÁtirat:\n${r.tr.map(t => `[${fmtDur(t.off)}] ${t.text}`).join("\n")}${notes ? "\n\nA közben írt lapok elemzése:\n" + notes : ""}`;
+  busy("Claude összefoglalót készít…");
+  try { const j = await aiCall({ max_tokens: 2500, system: REC_SYS, messages: [{ role: "user", content: text }] });
+    const t = aiText(j), a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a < 0) throw new Error("A válasz nem értelmezhető.");
+    const o = JSON.parse(t.slice(a, b + 1)); for (const k of ["dontesek", "feladatok", "kerdesek"]) if (!Array.isArray(o[k])) o[k] = [];
+    r.sum = { at: Date.now(), model: j.model || S.set.aiModel, res: o, usage: j.usage || null }; saveRecs(); unbusy(); recSumShow(r); if (!$("recPanel").hidden) renderRecList(); }
+  catch (e) { unbusy(); logError("ai-felvétel", e && e.message); dialog("Az összefoglaló nem sikerült", `<p>${esc(e.message)}</p>`, [["Bezár", "pri"]]); }
+}
+const tToMs = t => { const m = /^(?:(\d+):)?(\d+):(\d{1,2})$/.exec(String(t || "").trim()); return m ? ((+m[1] || 0) * 3600 + +m[2] * 60 + +m[3]) * 1000 : null; };
+function recSumShow(r) {
+  const o = r.sum.res, d = document.createElement("div"); d.className = "dlgbody ai-res";
+  const tb = x => { const ms = tToMs(x.t); return ms == null ? "" : ` <button class="ai-chip tbtn" data-ms="${ms}">${esc(x.t)}</button>`; };
+  const st = { var: '<span class="ai-chip wait">várunk rá</span>', kesz: '<span class="ai-chip done">kész</span>' };
+  const sect = (title, arr, fn) => arr.length ? `<strong>${title} (${arr.length})</strong><ul class="ai-list">${arr.map(fn).join("")}</ul>` : "";
+  let h = `<p>${esc(o.osszefoglalo || "")}</p>`;
+  h += sect("Döntések", o.dontesek, x => `<li>${esc(x.szoveg || "")}${tb(x)}</li>`);
+  h += sect("Feladatok", o.feladatok, x => `<li>${esc(x.szoveg || "")}${x.felelos ? ` <span class="ai-chip who">${esc(x.felelos)}</span>` : ""}${st[x.allapot] || ""}${x.var_kitol && x.var_kitol !== x.felelos ? ` <span class="ai-chip wait">${esc(x.var_kitol)}</span>` : ""}${x.biztos === false ? ' <span class="ai-chip warn">bizonytalan</span>' : ""}${tb(x)}</li>`);
+  h += sect("Nyitott kérdések", o.kerdesek, x => `<li>${esc(x.szoveg || "")}${tb(x)}</li>`);
+  h += `<p class="ai-meta">Vázlatos gépi átiratból készült; a felvétel és a lap a mérvadó. Az időpontra koppintva onnan szól a felvétel. · ${esc(r.sum.model || "")}</p>`;
+  d.innerHTML = h;
+  d.querySelectorAll("button.tbtn").forEach(b => b.onclick = () => { $("dlg").hidden = true; playRec(r, +b.dataset.ms); });
+  dialog("Megbeszélés összefoglaló", d, [["Újra", "", () => { recSummary.force = true; setTimeout(() => recSummary(r), 0); }], ["Emlékeztető (Word)", "", () => { recSumDocx(r); return false; }], ["Bezár", "pri"]]);
+}
+function recSumDocx(r) {
+  const o = r.sum.res, nb = nbOf(r.nb), title = `Megbeszélés – ${nb ? nb.name : ""} – ${new Date(r.start).toLocaleDateString("hu-HU")}`;
+  const B = [{ t: "h1", x: title }, { t: "meta", x: `${new Date(r.start).toLocaleString("hu-HU")} · ${fmtDur(r.dur)} · vázlatos gépi átiratból, a Claude összefoglalója` }];
+  if (o.osszefoglalo) B.push({ t: "p", x: o.osszefoglalo });
+  const AS = { var: "várunk rá", kesz: "kész" };
+  const L = (n, arr, fn) => { if (!arr.length) return; B.push({ t: "sub", x: n }); for (const x of arr) B.push({ t: "li", x: fn(x) }); };
+  L("Döntések", o.dontesek, x => x.szoveg + (x.t ? ` [${x.t}]` : ""));
+  L("Feladatok", o.feladatok, x => x.szoveg + (x.felelos ? " – felelős: " + x.felelos : "") + (AS[x.allapot] ? " – " + AS[x.allapot] : "") + (x.t ? ` [${x.t}]` : ""));
+  L("Nyitott kérdések", o.kerdesek, x => x.szoveg + (x.t ? ` [${x.t}]` : ""));
+  downloadBlob(aiReportDocx(B, title), safeName(title) + ".docx");
+}
+$("bRec").onclick = () => recNow ? recStop() : recStart();
+$("recPause").onclick = recPause; $("recStop").onclick = recStop;
+$("bRecList").onclick = () => { if (openPanel("recPanel")) renderRecList(); };
+$("recClose").onclick = () => closePanels();
+$("recLive").onclick = () => { S.set.recLive = !S.set.recLive; saveSettings(); markLive(); if (recNow) { if (S.set.recLive) srStart(); else srStop(); } };
+$("recMarksT").onclick = () => { S.set.recMarks = !S.set.recMarks; saveSettings(); drawInk(); renderRecList(); };
+$("recBarList").onclick = () => { if (openPanel("recPanel")) renderRecList(); };
+
 /* ================= Tárhely ================= */
 const fmtBytes = n => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1).replace(".", ",") + " MB" : (n / 1073741824).toFixed(2).replace(".", ",") + " GB";
 async function storageReport() {
-  let pages = 0, ai = 0, nPages = 0, nAi = 0, img = 0, nImg = 0, pdf = 0, nPdf = 0, other = 0;
+  let pages = 0, ai = 0, nPages = 0, nAi = 0, img = 0, nImg = 0, pdf = 0, nPdf = 0, aud = 0, nAud = 0, other = 0;
   await DB.each("pages", v => { nPages++; const a = v.ai ? JSON.stringify(v.ai).length : 0; if (a) nAi++; ai += a; pages += JSON.stringify(v).length - a; });
-  await DB.each("blobs", v => { const n = (v && v.size) || 0, t = (v && v.type) || ""; if (/pdf/.test(t)) { pdf += n; nPdf++; } else if (/^image\//.test(t)) { img += n; nImg++; } else other += n; });
+  await DB.each("blobs", v => { const n = (v && v.size) || 0, t = (v && v.type) || ""; if (/pdf/.test(t)) { pdf += n; nPdf++; } else if (/^audio\//.test(t)) { aud += n; nAud++; } else if (/^image\//.test(t)) { img += n; nImg++; } else other += n; });
   const L = [];
   L.push(`Lapok (vonalak, jelölők): ${fmtBytes(pages)} · ${nPages} lap`);
   L.push(`Képek (lapháttér, Képtár, PDF-oldalak képe): ${fmtBytes(img)} · ${nImg} db`);
   L.push(`Importált PDF-fájlok: ${fmtBytes(pdf)} · ${nPdf} db`);
+  L.push(`Hangfelvételek: ${fmtBytes(aud)} · ${nAud} db`);
   L.push(`AI-elemzések: ${fmtBytes(ai)} · ${nAi} lap`);
   if (other) L.push(`Egyéb: ${fmtBytes(other)}`);
-  L.push(`Összesen (app adatai): ${fmtBytes(pages + ai + img + pdf + other)}`);
+  L.push(`Összesen (app adatai): ${fmtBytes(pages + ai + img + pdf + aud + other)}`);
   if (navigator.storage && navigator.storage.estimate) {
     const e = await navigator.storage.estimate(); L.push("");
     L.push(`Böngésző szerint használt: ${fmtBytes(e.usage || 0)} (programfájlokkal együtt)`);
@@ -2710,6 +2945,7 @@ async function start() {
   for (const k of ["lastSec", "lastPage", "navOpen"]) if (!S.set[k] || typeof S.set[k] !== "object") S.set[k] = {};
   S.notebooks = ((await DB.get("kv", "notebooks")) || []).map(normNb);
   S.deleted = (await DB.get("kv", "deleted")) || { pages: {}, notebooks: {} };
+  await loadRecs(); recFinishOrphans();
   if (!S.notebooks.length) S.notebooks.push(newNotebook("Jegyzetek", NB_COLORS[0], "grid"));
   await saveNotebooks();
   narrow = innerWidth < 900; navVis = !narrow && S.set.navOn !== false; pagesVis = !narrow && S.set.pagesOn !== false;
