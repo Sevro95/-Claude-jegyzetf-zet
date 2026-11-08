@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.8.0">
+<meta name="app-version" content="3.8.1">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.8.0">
+<link rel="stylesheet" href="app.css?v=3.8.1">
 </head>
 <body>
 
@@ -284,6 +284,7 @@
   <div class="row between nowrap"><h2>Hangfelvételek</h2>
     <button id="recClose" class="icon" aria-label="Panel bezárása"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="seg"><button id="recLive" aria-pressed="false">Élő átirat: KI</button><button id="recMarksT" aria-pressed="true">Jelek a margón: BE</button></div>
+  <p class="note" id="recSup"></p>
   <div id="recLiveWrap" hidden><strong class="note">Élő átirat</strong><div id="recLiveBox" class="trbox"></div></div>
   <div class="list" id="recListBox"></div>
   <p class="note">A felvétel ezen az eszközön tárolódik (a Drive-ra még nem kerül fel). Az élő átirat a böngésző beszédfelismerése, internet kell hozzá; vázlatos, a felvétel a mérvadó. A margón a lila jelre koppintva onnan szól a felvétel.</p>
@@ -326,6 +327,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.8.0"></script>
+<script src="app.js?v=3.8.1"></script>
 </body>
 </html>

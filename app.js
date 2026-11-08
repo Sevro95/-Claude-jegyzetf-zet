@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.8.0";
+const APP_VERSION = "3.8.1";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2538,22 +2538,28 @@ function markRecBtn() { const b = $("bRec"); b.classList.toggle("on", !!recNow);
 /* --- Élő átirat (a böngésző beszédfelismerése) --- */
 function srStart() {
   if (!recNow || recNow.paused || recNow.srOn) return;
-  if (!SRec) { toast("Ez a böngésző nem támogatja az élő átiratot"); return; }
+  if (!SRec) { logError("átirat", "a böngésző nem támogatja (SpeechRecognition hiányzik)"); dialog("Élő átirat", "<p>Ez a böngésző nem támogatja az élő átiratot, ezért ehhez a felvételhez nem készül átirat. A hangfelvétel megy tovább.</p><p>Androidon a <b>Chrome</b> tudja; Operában jellemzően nem érhető el.</p>", [["Rendben", "pri"]]); return; }
   const n = recNow, sr = new SRec(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
   sr.onresult = ev => { let interim = "";
     for (let i = ev.resultIndex; i < ev.results.length; i++) { const res = ev.results[i], t = res[0].transcript.trim(); if (!t) continue;
       if (res.isFinal) { n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t }); saveRecs(); } else interim += t + " "; }
     n.interim = interim.trim(); renderLive(); };
   sr.onerror = ev => { if (ev.error === "no-speech" || ev.error === "aborted") return;
-    n.srOn = false; S.set.recLive = false; saveSettings(); markLive(); toast("Az élő átirat leállt (" + ev.error + "). A hangfelvétel megy tovább."); };
+    logError("átirat", "hiba: " + ev.error + (ev.message ? " – " + ev.message : ""));
+    n.srOn = false; S.set.recLive = false; saveSettings(); markLive();
+    const why = { "audio-capture": "a mikrofont a hangfelvétel már használja, és ezen az eszközön a kettő egyszerre nem megy", "not-allowed": "a böngésző nem engedte a beszédfelismerést", "network": "nincs internet, vagy a beszédfelismerő szolgáltatás nem érhető el", "service-not-allowed": "a böngésző nem engedi a beszédfelismerő szolgáltatást", "language-not-supported": "a magyar nyelv nem támogatott" }[ev.error] || ev.error;
+    dialog("Az élő átirat leállt", `<p>Ok: ${esc(why)}.</p><p>A hangfelvétel megy tovább, csak átirat nem készül.</p>`, [["Rendben", "pri"]]); };
+  sr.onstart = () => { n.srStarted = true; renderLive(); };
   sr.onend = () => { if (recNow === n && n.srOn && !n.paused) setTimeout(() => { try { sr.start(); } catch (_) {} }, 300); };
   n.sr = sr; n.srOn = true; try { sr.start(); } catch (e) { n.srOn = false; }
   markLive();
 }
 function srStop() { if (!recNow || !recNow.sr) return; recNow.srOn = false; try { recNow.sr.stop(); } catch (_) {} recNow.interim = ""; }
-function markLive() { const b = $("recLive"); b.setAttribute("aria-pressed", String(!!S.set.recLive)); b.textContent = S.set.recLive ? "Élő átirat: BE" : "Élő átirat: KI"; }
+function markLive() { renderLive(); const b = $("recLive"); b.setAttribute("aria-pressed", String(!!S.set.recLive)); b.textContent = S.set.recLive ? "Élő átirat: BE" : "Élő átirat: KI"; }
 function renderLive() { if ($("recPanel").hidden || !recNow) return; const box = $("recLiveBox"); if (!box) return;
-  box.textContent = ""; for (const t of recNow.r.tr.slice(-12)) { const d = el("div", "trl"); d.append(el("span", "tt", fmtDur(t.off)), el("span", null, t.text)); box.append(d); }
+  box.textContent = "";
+  if (!recNow.srOn) box.append(el("div", "trl interim", S.set.recLive ? "Az élő átirat nem fut." : "Az élő átirat ki van kapcsolva – fent bekapcsolhatod."));
+  else if (!recNow.r.tr.length && !recNow.interim) box.append(el("div", "trl interim", recNow.srStarted ? "Figyel… (beszéd után pár másodperccel jelenik meg a szöveg)" : "Indul…")); for (const t of recNow.r.tr.slice(-12)) { const d = el("div", "trl"); d.append(el("span", "tt", fmtDur(t.off)), el("span", null, t.text)); box.append(d); }
   if (recNow.interim) box.append(el("div", "trl interim", recNow.interim)); box.scrollTop = box.scrollHeight; }
 /* --- Lejátszás --- */
 let PL = null;
@@ -2609,6 +2615,7 @@ function renderRecList() {
     c.append(row); box.append(c);
   }
   if (!list.length) box.append(el("div", "empty", "Ebben a füzetben még nincs hangfelvétel."));
+  $("recSup").textContent = SRec ? "Élő átirat: ez a böngésző támogatja (internet kell hozzá)." : "Élő átirat: ez a böngésző NEM támogatja – Androidon Chrome-ban működik.";
   $("recMarksT").setAttribute("aria-pressed", String(!!S.set.recMarks)); $("recMarksT").textContent = S.set.recMarks ? "Jelek a margón: BE" : "Jelek a margón: KI";
 }
 function recTranscript(r) {
