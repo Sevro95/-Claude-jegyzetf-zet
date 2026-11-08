@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.6.1";
+const APP_VERSION = "3.6.2";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2413,6 +2413,7 @@ function aiShow(pg, ai) {
   const b = aiResultBody(ai); if (stale) b.insertAdjacentHTML("afterbegin", '<p class="ai-meta">A lap az elemzés óta változott.</p>');
   dialog(`Claude elemzés – ${pageNoOf(pg)}. lap`, b, [["Újraelemzés", "", () => { setTimeout(() => aiRun(pg), 0); }], ["Bezár", "pri"]]);
 }
+$("bAiSet").onclick = () => { settingsDialog(); setTimeout(() => { const f = document.getElementById("aiUrl"); if (f) f.scrollIntoView({ block: "center" }); }, 60); };
 $("bAi").onclick = () => { const pg = S.page; if (!pg) return; if (pg.ai && pg.ai.res) aiShow(pg, pg.ai); else aiRun(pg); };
 
 /* ================= Beállítások ================= */

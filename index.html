@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.6.1">
+<meta name="app-version" content="3.6.2">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.6.1">
+<link rel="stylesheet" href="app.css?v=3.6.2">
 </head>
 <body>
 
@@ -35,6 +35,7 @@
     <button class="tab" role="tab" data-tab="draw">Rajz</button>
     <button class="tab" role="tab" data-tab="stk">Matricák</button>
     <button class="tab" role="tab" data-tab="view">Nézet</button>
+    <button class="tab" role="tab" data-tab="ai">AI eszközök</button>
   </nav>
   <div id="ribbon">
     <!-- Kezdőlap -->
@@ -46,7 +47,6 @@
       <button class="rb" id="bNext"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><span class="lb">Következő</span></button>
       <button class="rb" id="bAdd"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M12 10v7M8.5 13.5h7"/></svg></span><span class="lb">Új lap</span></button>
       <button class="rb" id="bPgEdit"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></span><span class="lb">Lap adatai</span></button>
-      <button class="rb" id="bAi"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L19 9.5l-5.2 1.6L12 16l-1.8-4.9L5 9.5l5.2-1.6z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span><span class="lb">Lap elemzése</span></button>
       <span class="rsep"></span>
       <button class="rb" id="bNoteH"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetli</span></button>
       <span class="rsep"></span>
@@ -105,6 +105,12 @@
       <button class="rb" id="vNotes" aria-pressed="true"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v11l-5 5H5z" fill="#FFE36E" stroke="currentColor"/><path d="M14 20v-5h5"/></svg></span><span class="lb">Jegyzetcetlik</span></button>
       <span class="rsep"></span>
       <div class="rcol wide"><select id="paper" class="txt" aria-label="Lap típusa"></select><span class="lb">Lap típusa</span></div>
+    </div>
+    <!-- AI eszközök -->
+    <div class="rpanel" data-panel="ai" role="tabpanel" hidden>
+      <button class="rb" id="bAi"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L19 9.5l-5.2 1.6L12 16l-1.8-4.9L5 9.5l5.2-1.6z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span><span class="lb">Lap elemzése</span></button>
+      <span class="rsep"></span>
+      <button class="rb" id="bAiSet"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></span><span class="lb">AI beállítások</span></button>
     </div>
   </div>
   <!-- Dosszié: füzet borító + szakaszfülek -->
@@ -280,6 +286,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.6.1"></script>
+<script src="app.js?v=3.6.2"></script>
 </body>
 </html>
