@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.8.2";
+const APP_VERSION = "3.8.3";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2492,7 +2492,7 @@ async function recStart() {
   if (recNow) return;
   if (!navigator.mediaDevices || !window.MediaRecorder) { dialog("Hangfelvétel", "<p>Ez a böngésző nem támogatja a hangfelvételt.</p>", [["Bezár", "pri"]]); return; }
   if (!S.nb) return;
-  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: S.set.recLive ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : { echoCancellation: true, noiseSuppression: true } }); }
   catch (e) { dialog("Hangfelvétel", `<p>A mikrofon nem érhető el (${esc(e.name || e.message)}). Engedélyezd a mikrofont a böngésző címsorában a lakat ikonnál, majd próbáld újra.</p>`, [["Bezár", "pri"]]); return; }
   const type = recMime(); let mr;
   try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined); } catch (e) { mr = new MediaRecorder(stream); }
@@ -2539,21 +2539,27 @@ function markRecBtn() { const b = $("bRec"); b.classList.toggle("on", !!recNow);
 function srStart() {
   if (!recNow || recNow.paused || recNow.srOn) return;
   if (!SRec) { logError("átirat", "a böngésző nem támogatja (SpeechRecognition hiányzik)"); dialog("Élő átirat", "<p>Ez a böngésző nem támogatja az élő átiratot, ezért ehhez a felvételhez nem készül átirat. A hangfelvétel megy tovább.</p><p>Androidon a <b>Chrome</b> tudja; Operában jellemzően nem érhető el.</p>", [["Rendben", "pri"]]); return; }
-  const n = recNow, sr = new SRec(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
-  sr.onresult = ev => { let interim = "";
-    for (let i = ev.resultIndex; i < ev.results.length; i++) { const res = ev.results[i], t = res[0].transcript.trim(); if (!t) continue;
-      if (res.isFinal) { if (!n.r.tr.length) logError("átirat", "első szöveg megérkezett"); n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t }); saveRecs(); } else interim += t + " "; }
-    n.interim = interim.trim(); renderLive(); };
-  const lg = m => { n.srLog = (n.srLog || 0) + 1; if (n.srLog <= 25) logError("átirat", m); };
+  // Rövid menetek (Androidon a folyamatos mód úgysem tart ki), menetenként egy szövegrész; Androidon az eredménylista halmozott,
+  // ezért mindig a legutolsó (legteljesebb) eredményt vesszük; ha nem jön végleges eredmény, a köztes szöveget is megtartjuk.
+  const n = recNow, sr = new SRec(); sr.lang = "hu-HU"; sr.continuous = false; sr.interimResults = true; sr.maxAlternatives = 1;
+  const lg = m => { n.srLog = (n.srLog || 0) + 1; if (n.srLog <= 40) logError("átirat", m); };
+  let sess = "", fin = false, nres = 0, runs = 0;
+  const flush = () => { const t = sess.trim(); if (t) { n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t, ...(fin ? {} : { v: 1 }) }); saveRecs();
+      if (n.r.tr.length === 1) lg("első szöveg mentve" + (fin ? "" : " (köztes eredményből)")); }
+    sess = ""; fin = false; n.interim = ""; renderLive(); };
+  sr.onresult = ev => { nres++; if (nres === 1 && runs <= 3) lg("első eredmény ebben a menetben");
+    const last = ev.results[ev.results.length - 1]; if (!last) return; const t = (last[0] && last[0].transcript || "").trim(); if (!t) return;
+    sess = t; fin = !!last.isFinal; n.interim = fin ? "" : t; if (fin) flush(); else renderLive(); };
   lg("indítás felvétel közben");
-  sr.onaudiostart = () => lg("mikrofon megnyílt"); sr.onspeechstart = () => lg("beszéd észlelve");
-  sr.onerror = ev => { lg("hiba: " + ev.error + (ev.message ? " – " + ev.message : "")); if (ev.error === "no-speech" || ev.error === "aborted") return;
+  sr.onaudiostart = () => { if (runs <= 2) lg("mikrofon megnyílt"); }; sr.onspeechstart = () => { if (runs <= 2) lg("beszéd észlelve"); };
+  sr.onerror = ev => { if (ev.error !== "no-speech" || runs <= 2) lg("hiba: " + ev.error + (ev.message ? " – " + ev.message : "")); if (ev.error === "no-speech" || ev.error === "aborted") return;
     n.srOn = false; S.set.recLive = false; saveSettings(); markLive();
     const why = { "audio-capture": "a mikrofont a hangfelvétel már használja, és ezen az eszközön a kettő egyszerre nem megy", "not-allowed": "a böngésző nem engedte a beszédfelismerést", "network": "nincs internet, vagy a beszédfelismerő szolgáltatás nem érhető el", "service-not-allowed": "a böngésző nem engedi a beszédfelismerő szolgáltatást", "language-not-supported": "a magyar nyelv nem támogatott" }[ev.error] || ev.error;
     dialog("Az élő átirat leállt", `<p>Ok: ${esc(why)}.</p><p>A hangfelvétel megy tovább, csak átirat nem készül.</p>`, [["Rendben", "pri"]]); };
-  sr.onstart = () => { n.srStarted = true; lg("elindult"); renderLive(); };
-  sr.onend = () => { lg("leállt (" + n.r.tr.length + " részlet eddig) – újraindítás"); if (recNow === n && n.srOn && !n.paused) setTimeout(() => { try { sr.start(); } catch (_) {} }, 300); };
-  n.sr = sr; n.srOn = true; try { sr.start(); } catch (e) { n.srOn = false; }
+  sr.onstart = () => { runs++; n.srStarted = true; nres = 0; if (runs <= 3) lg("elindult (" + runs + ". menet)"); renderLive(); };
+  sr.onend = () => { if (runs <= 3 || nres) lg("menet vége: " + nres + " eredmény, eddig " + n.r.tr.length + " részlet"); if (sess) flush();
+    if (recNow === n && n.srOn && !n.paused) setTimeout(() => { if (recNow !== n || !n.srOn) return; try { sr.start(); } catch (e) { lg("újraindítás hiba: " + e.message); } }, 250); };
+  n.sr = sr; n.srOn = true; try { sr.start(); } catch (e) { n.srOn = false; lg("nem indult: " + e.message); }
   markLive();
 }
 function srStop() { if (!recNow || !recNow.sr) return; recNow.srOn = false; try { recNow.sr.stop(); } catch (_) {} recNow.interim = ""; }
@@ -2682,11 +2688,11 @@ $("recTest").onclick = () => {
   const out = $("recTestOut"); out.hidden = false;
   if (!SRec) { out.textContent = "Ez a böngésző nem támogatja a beszédfelismerést."; return; }
   if (recNow) { out.textContent = "Felvétel közben nem futtatható – előbb állítsd le a felvételt."; return; }
-  const sr = new SRec(), log = []; let txt = "", t0 = Date.now(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
+  const sr = new SRec(), log = []; let txt = "", t0 = Date.now(); sr.lang = "hu-HU"; sr.continuous = false; sr.interimResults = true;
   const show = () => { out.textContent = (txt ? "Felismert szöveg: " + txt : "Beszélj most magyarul (10 mp)…") + "\n" + log.join(" · "); };
   const L = m => { log.push(((Date.now() - t0) / 1000).toFixed(1) + " mp: " + m); show(); };
   sr.onstart = () => L("elindult"); sr.onaudiostart = () => L("mikrofon megnyílt"); sr.onspeechstart = () => L("beszéd észlelve");
-  sr.onresult = ev => { txt = ""; for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript + " "; show(); };
+  sr.onresult = ev => { const last = ev.results[ev.results.length - 1]; if (last && last[0]) { txt = last[0].transcript; if (last.isFinal) L("végleges"); } show(); };
   sr.onerror = ev => L("hiba: " + ev.error); sr.onend = () => { L("vége"); logError("átirat-próba", (txt ? "OK: " + txt.slice(0, 80) : "nincs szöveg") + " | " + log.join(" · ")); };
   try { sr.start(); show(); setTimeout(() => { try { sr.stop(); } catch (_) {} }, 10000); } catch (e) { L("nem indult: " + e.message); }
 };
