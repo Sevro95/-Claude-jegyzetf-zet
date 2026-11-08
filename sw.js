@@ -1,6 +1,6 @@
 // CyberNote – service worker (offline működés)
-const VERSION = "jf-v3.5.0";
-const SHELL = ["./", "./index.html", "./app.css?v=3.5.0", "./app.js?v=3.5.0", "./manifest.webmanifest",
+const VERSION = "jf-v3.6.0";
+const SHELL = ["./", "./index.html", "./app.css?v=3.6.0", "./app.js?v=3.6.0", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-180.png",
   "./stickers/expanzios-tartaly-k.webp", "./stickers/expanzios-tartaly.webp", "./stickers/hmv-tarolo-k.webp", "./stickers/hmv-tarolo.webp", "./stickers/hoszivattyu-kulteri-k.webp", "./stickers/hoszivattyu-kulteri.webp", "./stickers/kazettas-belteri-k.webp", "./stickers/kazettas-belteri.webp", "./stickers/keringeto-szivattyu-k.webp", "./stickers/keringeto-szivattyu.webp", "./stickers/kondenzacios-kazan-k.webp", "./stickers/kondenzacios-kazan.webp", "./stickers/lemezes-hocserelo-k.webp", "./stickers/lemezes-hocserelo.webp", "./stickers/split-belteri-k.webp", "./stickers/split-belteri.webp", "./stickers/tagulasi-tartaly-k.webp", "./stickers/tagulasi-tartaly.webp"];
 const LIBS = "jf-libs-v1";

@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.5.0";
+const APP_VERSION = "3.6.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -78,6 +78,7 @@ const DEF_SET = {
   penSlot: 0, hiSlot: 0,
   recentW: { pen: [], hi: [], pc: [] }, favW: { pen: null, hi: null, pc: null }, pcW: 2.2, pcHard: "HB",
   lastNb: null, lastSec: {}, lastPage: {}, clientId: "", driveOn: false,
+  aiUrl: "", aiToken: "", aiModel: "claude-sonnet-5-5",
   tab: "draw", ribbonOff: false, navOn: true, pagesOn: true, notesOn: true, navOpen: {}, noteColor: NOTE_COLORS[0],
 };
 const S = {
@@ -145,13 +146,15 @@ function serializePage(pg) {
   return { v: 2, id: pg.id, nb: pg.nb, created: pg.created, updated: pg.updated, paper: pg.paper, bg: pg.bg, h: pgH(pg), mmW: pg.mmW || 210, title: pg.title || "",
     strokes: pg.strokes.map(serStroke), marks: pg.marks.map(m => ({ ...m })),
     stickers: (pg.stickers || []).map(k => ({ ...k })),
-    notes: (pg.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: n.strokes.map(serStroke) })) };
+    notes: (pg.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: n.strokes.map(serStroke) })),
+    ai: pg.ai || null };
 }
 function deserializePage(o) {
   return { id: o.id, nb: o.nb, created: o.created, updated: o.updated, paper: o.paper || "grid", bg: o.bg || null, h: o.h || H0, mmW: o.mmW || 210, title: o.title || "",
     strokes: (o.strokes || []).map(deserStroke), marks: (o.marks || []).map(m => ({ ...m })),
     stickers: (o.stickers || []).map(k => ({ ...k })),
-    notes: (o.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: (n.strokes || []).map(deserStroke) })) };
+    notes: (o.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: (n.strokes || []).map(deserStroke) })),
+    ai: o.ai || null };
 }
 const pageTimers = {};
 function persistPage(pg, now) {
@@ -2322,6 +2325,95 @@ $("mSummary").onclick = () => {
   const a = document.createElement("a"); a.href = "https://drive.google.com/drive/folders/" + Sync.ids.root; a.target = "_blank"; a.rel = "noopener"; document.body.append(a); a.click(); a.remove();
 };
 
+/* ================= Claude AI lapelemzés ================= */
+const aiReady = () => !!(S.set.aiUrl && S.set.aiToken);
+const aiText = j => ((j && j.content) || []).filter(b => b.type === "text").map(b => b.text).join("");
+async function aiCall(body) {
+  if (!navigator.onLine) throw new Error("Nincs internetkapcsolat.");
+  let r; try {
+    r = await fetch(S.set.aiUrl, { method: "POST", headers: { "Content-Type": "application/json", "X-CyberNote-Token": S.set.aiToken },
+      body: JSON.stringify({ model: S.set.aiModel || DEF_SET.aiModel, ...body }) });
+  } catch (e) { throw new Error("A közvetítő nem érhető el (" + e.message + ")."); }
+  let j = null; try { j = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const raw = j ? (typeof j.error === "string" ? j.error : (j.error && (j.error.message || j.error.type)) || "") : "";
+    if (r.status === 401) throw new Error("A token nem egyezik a Cloudflare-ben beállított APP_TOKEN-nel.");
+    if (/credit|balance/i.test(raw)) throw new Error("Elfogyott az egyenleg a Claude Console-ban.");
+    if (/model/i.test(raw)) throw new Error("Ismeretlen modell: " + (S.set.aiModel || "") + ".");
+    throw new Error((raw || "HTTP " + r.status));
+  }
+  return j;
+}
+const blobB64 = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(b); });
+const AI_SYS = `Egy épületgépész tervező kézírásos projektjegyzet-lapját kapod képként (CyberNote jegyzetfüzet). A lapon tollal írt magyar szöveg, vázlatok, számolások lehetnek, rácsos vagy üres papíron; importált PDF vagy kép is lehet a háttérben.
+Olvasd el a lapot, és KIZÁRÓLAG egy JSON objektumot adj vissza, magyarázat és kódblokk nélkül, ezzel a szerkezettel:
+{"osszefoglalo":"1–3 mondat arról, mi van a lapon",
+ "feladatok":[{"szoveg":"…","felelos":null,"allapot":"nyitott","var_kitol":null,"y":0,"jelolt":false,"biztos":true}],
+ "kerdesek":[{"szoveg":"…","y":0,"jelolt":false,"biztos":true}],
+ "dontesek":[{"szoveg":"…","y":0,"biztos":true}],
+ "berendezesek":[{"kod":"…","megnevezes":null,"y":0,"biztos":true}],
+ "nem_olvashato":[{"y":0,"megjegyzes":"…"}]}
+Szabályok:
+- "y": a sor függőleges helye a lap magasságának százalékában (0 = teteje, 100 = alja).
+- Feladat: teendő, akár van mellette jelölőnégyzet, akár nincs. "felelos": ha a sor megnevez valakit, aki csinálja (pl. „Tamás nézze át” → "Tamás"), különben null. "allapot": "var", ha másra várunk (várjuk, kérve, bekérve, e-mailben kérve, választ vár); "kesz", ha ki van húzva vagy ki van pipálva; egyébként "nyitott". "var_kitol": kitől várunk, ha kiderül.
+- Kérdés: kérdőjellel végződő vagy kérdő mondat, akkor is, ha nincs mellette jelölő.
+- Döntés: amit eldöntöttek (pl. „X helyett Y lesz”, „marad a meglévő”, „eltávolítva”).
+- Berendezés: tervezői azonosító vagy termék, pl. HE-1.8, HP21, TA-Smart, CWT 1.2, WWTP. Ne találj ki kódot; ha bizonytalan, "biztos": false.
+- "jelolt": true, ha a sorhoz az app egyik jelölője tartozik (a jelölők helyét a felhasználói üzenet adja meg).
+- Számot, méretet, mértékegységet, típusszámot csak akkor írj át, ha biztosan olvasható; különben írd: „(lásd a lapot)”, és "biztos": false.
+- Amit nem tudsz elolvasni, ne találd ki: tedd a "nem_olvashato" listába.
+- Ne találj ki tartalmat. Üres lapnál üres listákat adj.`;
+function aiParse(t) {
+  const a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a < 0 || b <= a) throw new Error("A válasz nem értelmezhető.");
+  const o = JSON.parse(t.slice(a, b + 1)); for (const k of ["feladatok", "kerdesek", "dontesek", "berendezesek", "nem_olvashato"]) if (!Array.isArray(o[k])) o[k] = [];
+  return o;
+}
+async function aiAnalyzePage(pg) {
+  const r = secOf(pg.id), ph = pgH(pg);
+  const c = await renderPageCanvas(pg, 1100, false), blob = await jpegOf(c, .8); c.width = c.height = 0;
+  const marks = pg.marks.map(m => ({ jelolo: m.k === "box" ? "feladat (jelölőnégyzet)" : "kérdés (?)", kesz: !!m.done, y: Math.round(m.y / ph * 1000) / 10, szoveg: m.text || null }));
+  const ctx = `Füzet (projekt): ${r ? r.nb.name : "?"} · szakasz: ${r ? r.sec.name : "?"} · ${pageNoOf(pg)}. lap · létrehozva: ${fmtDate(pg.created)}${pg.title ? " · cím: " + pg.title : ""}
+Az app jelölői ezen a lapon: ${marks.length ? JSON.stringify(marks) : "nincs"}`;
+  const j = await aiCall({ max_tokens: 2500, temperature: 0, system: AI_SYS,
+    messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobB64(blob) } }, { type: "text", text: ctx }] }] });
+  const res = aiParse(aiText(j));
+  pg.ai = { at: Date.now(), model: j.model || S.set.aiModel, upd: pg.updated, res, usage: j.usage || null };
+  persistPage(pg, true); Sync.schedule(5000);
+  return pg.ai;
+}
+function aiResultBody(ai) {
+  const o = ai.res, d = document.createElement("div"); d.className = "dlgbody ai-res";
+  const unsure = x => x.biztos === false ? ' <span class="ai-chip warn">bizonytalan</span>' : "";
+  const pos = x => typeof x.y === "number" ? ` <span class="ai-pos">${Math.round(x.y)}%</span>` : "";
+  const sect = (title, arr, fn) => arr.length ? `<strong>${title} (${arr.length})</strong><ul class="ai-list">${arr.map(fn).join("")}</ul>` : "";
+  const st = { nyitott: "", var: '<span class="ai-chip wait">várunk rá</span>', kesz: '<span class="ai-chip done">kész</span>' };
+  let h = `<p>${esc(o.osszefoglalo || "")}</p>`;
+  h += sect("Feladatok", o.feladatok, x => `<li>${esc(x.szoveg || "")} ${x.felelos ? `<span class="ai-chip who">${esc(x.felelos)}</span>` : ""}${st[x.allapot] || ""}${x.var_kitol && x.var_kitol !== x.felelos ? ` <span class="ai-chip wait">${esc(x.var_kitol)}</span>` : ""}${x.jelolt ? "" : ' <span class="ai-chip auto">jelölő nélkül</span>'}${unsure(x)}${pos(x)}</li>`);
+  h += sect("Kérdések", o.kerdesek, x => `<li>${esc(x.szoveg || "")}${x.jelolt ? "" : ' <span class="ai-chip auto">jelölő nélkül</span>'}${unsure(x)}${pos(x)}</li>`);
+  h += sect("Döntések", o.dontesek, x => `<li>${esc(x.szoveg || "")}${unsure(x)}${pos(x)}</li>`);
+  h += sect("Berendezések", o.berendezesek, x => `<li><b>${esc(x.kod || "")}</b>${x.megnevezes ? " – " + esc(x.megnevezes) : ""}${unsure(x)}${pos(x)}</li>`);
+  h += sect("Nem olvasható", o.nem_olvashato, x => `<li>${esc(x.megjegyzes || "")}${pos(x)}</li>`);
+  const u = ai.usage; let cost = "";
+  if (u && /sonnet/i.test(ai.model || "")) cost = ` · kb. $${((u.input_tokens || 0) * 2 / 1e6 + (u.output_tokens || 0) * 10 / 1e6).toFixed(3)}`;
+  h += `<p class="ai-meta">${esc(ai.model || "")} · ${new Date(ai.at).toLocaleString("hu-HU")}${u ? ` · ${u.input_tokens || 0} + ${u.output_tokens || 0} token${cost}` : ""}</p>`;
+  d.innerHTML = h; return d;
+}
+let aiBusy = false;
+async function aiRun(pg) {
+  if (aiBusy) return;
+  if (!aiReady()) { dialog("Claude AI", "<p>Az elemzéshez add meg a közvetítő címét és a tokent: Fájl › Beállítások és szinkron › Claude AI.</p>", [["Mégse"], ["Beállítások", "pri", () => setTimeout(settingsDialog, 0)]]); return; }
+  aiBusy = true; busy("Claude elemzi a lapot…");
+  try { const ai = await aiAnalyzePage(pg); unbusy(); aiShow(pg, ai); }
+  catch (e) { unbusy(); logError("ai", e && e.message); dialog("Az elemzés nem sikerült", `<p>${esc(e.message || String(e))}</p>`, [["Bezár", "pri"]]); }
+  finally { aiBusy = false; }
+}
+function aiShow(pg, ai) {
+  const stale = ai.upd && pg.updated > ai.upd + 1000;
+  const b = aiResultBody(ai); if (stale) b.insertAdjacentHTML("afterbegin", '<p class="ai-meta">A lap az elemzés óta változott.</p>');
+  dialog(`Claude elemzés – ${pageNoOf(pg)}. lap`, b, [["Újraelemzés", "", () => { setTimeout(() => aiRun(pg), 0); }], ["Bezár", "pri"]]);
+}
+$("bAi").onclick = () => { const pg = S.page; if (!pg) return; if (pg.ai && pg.ai.res) aiShow(pg, pg.ai); else aiRun(pg); };
+
 /* ================= Beállítások ================= */
 function settingsDialog() {
   closePops(); Sync.gis().catch(() => {});
@@ -2335,6 +2427,16 @@ function settingsDialog() {
     <p>Ha a bejelentkező ablak „popup_closed” hibát ad, az app ugyanazon a lapon jelentkeztet be. Ehhez a Google Cloudban az <em>Authorized redirect URIs</em> közé ezt is add hozzá: <code>${esc(Sync.redirectUri())}</code></p>
     <div class="seg"><button class="btn pri" id="dOn"></button><button class="btn" id="dNow">Szinkronizálás most</button></div>
     <p id="dState"></p>
+    <strong>Claude AI</strong>
+    <p>A lapelemzés a saját Cloudflare-közvetítődön keresztül hívja a Claude-ot. A kulcs a Cloudflare-ben van, ide csak a címet és az APP_TOKEN-t kell beírni.</p>
+    <label for="aiUrl">Közvetítő címe (Worker URL)</label>
+    <input type="text" id="aiUrl" placeholder="https://cybernote-ai.….workers.dev/" autocomplete="off" spellcheck="false">
+    <label for="aiTok">APP_TOKEN</label>
+    <input type="password" id="aiTok" autocomplete="off" spellcheck="false">
+    <label for="aiModel">Modell</label>
+    <input type="text" id="aiModel" autocomplete="off" spellcheck="false">
+    <div class="seg"><button class="btn pri" id="aiSave">Mentés és teszt</button></div>
+    <p id="aiState"></p>
     <strong>S Pen gomb teszt</strong>
     <p>Bekapcsolva a képernyő alján kiírja, mit jelez a toll. Írj a lapra lenyomott oldalsó gombbal, és küldd el a kiírt sort.</p>
     <div class="seg"><button class="tb" id="dbgBtn"></button></div>
@@ -2367,6 +2469,18 @@ function settingsDialog() {
     pre.textContent = l.map(e => `${new Date(e.t).toLocaleString("hu-HU")} · ${e.v} · ${e.k}\n${e.m}`).join("\n\n") || "Nincs rögzített hiba."; pre.hidden = !pre.hidden; };
   body.querySelector("#errClear").onclick = () => { try { localStorage.removeItem(ERRLOG); } catch (_) {} markErr(); body.querySelector("#errText").hidden = true; };
   body.querySelector("#hardReload").onclick = () => hardReload();
+  const aiUrl = body.querySelector("#aiUrl"), aiTok = body.querySelector("#aiTok"), aiModel = body.querySelector("#aiModel"), aiSt = body.querySelector("#aiState");
+  aiUrl.value = S.set.aiUrl || ""; aiTok.value = S.set.aiToken || ""; aiModel.value = S.set.aiModel || DEF_SET.aiModel;
+  aiSt.textContent = aiReady() ? "Beállítva." : "Nincs beállítva.";
+  body.querySelector("#aiSave").onclick = async () => {
+    const u = aiUrl.value.trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) { aiSt.textContent = "A címnek https://-sel kell kezdődnie."; return; }
+    S.set.aiUrl = u; S.set.aiToken = aiTok.value.trim(); S.set.aiModel = aiModel.value.trim() || DEF_SET.aiModel; saveSettings();
+    if (!aiReady()) { aiSt.textContent = "Elmentve – a cím és a token is kell a működéshez."; return; }
+    aiSt.textContent = "Teszt…";
+    try { const j = await aiCall({ max_tokens: 30, messages: [{ role: "user", content: "Válaszolj egy szóval: működik?" }] });
+      aiSt.textContent = "Működik ✓ – válasz: " + aiText(j).trim().slice(0, 60); }
+    catch (e) { aiSt.textContent = "Nem sikerült: " + e.message; }
+  };
   markDrive(); markDbg(); markErr();
   dialog("Beállítások és szinkron", body, [["Kész", "pri"]]);
 }

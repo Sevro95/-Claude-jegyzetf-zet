@@ -234,7 +234,7 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:28px}
 .dlg h3{margin:0;font-size:18px}
 .dlgbody{display:flex;flex-direction:column;gap:10px;line-height:1.5;-webkit-user-select:text;user-select:text}
 .dlgbody p{margin:0;color:var(--muted)}
-.dlgbody input[type=text],.dlgbody textarea,.dlgbody select{font:inherit;color:var(--fg);background:var(--ribbon);border:1px solid var(--line);border-radius:6px;padding:10px;width:100%;-webkit-user-select:text;user-select:text}
+.dlgbody input[type=text],.dlgbody input[type=password],.dlgbody textarea,.dlgbody select{font:inherit;color:var(--fg);background:var(--ribbon);border:1px solid var(--line);border-radius:6px;padding:10px;width:100%;-webkit-user-select:text;user-select:text}
 .dlgbody .colors{display:flex;gap:8px;flex-wrap:wrap}
 .dlgbody .colors button{width:34px;height:34px;min-width:34px;border-radius:50%;border:2px solid var(--panel);padding:0}
 .dlgbody .colors button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent)}
@@ -459,3 +459,15 @@ body.ribbon-off #dossier{border-top-color:transparent}
 .psec{flex:none;display:flex;align-items:center;padding:0 6px 0 10px;font-family:var(--fx);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--c,#C86BFF);opacity:.85;cursor:pointer;white-space:nowrap}
 .psec:not(:first-child){border-left:1px solid #3A2C5C;margin-left:4px}
 @media (max-width:700px){.vw{padding:0 6px}.vw .n{display:none}}
+
+/* Claude AI elemzés */
+.ai-res strong{margin-top:4px}
+.ai-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.ai-chip{display:inline-block;font-size:11.5px;font-weight:600;line-height:1.4;padding:1px 8px;border-radius:999px;margin-left:4px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--fg)}
+.ai-chip.who{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.ai-chip.wait{background:#fff0d6;color:#7a4300}
+.ai-chip.done{background:#e3f2e5;color:#1e5b2a}
+.ai-chip.warn{background:#fde8e8;color:#8a1f1f}
+.ai-chip.auto{background:transparent;border:1px dashed var(--line);color:var(--muted);font-weight:500}
+.ai-pos{font-size:11px;color:var(--muted);margin-left:4px}
+.ai-meta{font-size:12px}
