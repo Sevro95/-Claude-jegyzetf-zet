@@ -516,3 +516,4 @@ body.ribbon-off #dossier{border-top-color:transparent}
 .ai-chip.tbtn{border:0;cursor:pointer;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);min-height:0}
 #recTest{grid-column:1/-1}
 #recTestOut{white-space:pre-wrap;font-size:12px}
+.trl.near{background:color-mix(in srgb,var(--accent) 18%,transparent);border-radius:6px;padding:2px 4px}

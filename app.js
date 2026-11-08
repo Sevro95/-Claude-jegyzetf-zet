@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.8.3";
+const APP_VERSION = "3.9.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2490,9 +2490,19 @@ function recFinishOrphans() { let ch = false; for (const r of RECS) if (!r.end) 
 function recMime() { const c = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]; for (const t of c) { try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; } catch (_) {} } return ""; }
 async function recStart() {
   if (recNow) return;
-  if (!navigator.mediaDevices || !window.MediaRecorder) { dialog("Hangfelvétel", "<p>Ez a böngésző nem támogatja a hangfelvételt.</p>", [["Bezár", "pri"]]); return; }
   if (!S.nb) return;
-  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: S.set.recLive ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : { echoCancellation: true, noiseSuppression: true } }); }
+  if (S.set.recLive) { // Csak átirat mód: hang nem készül (ezen a tableten a kettő együtt nem ad szöveget)
+    if (!SRec) { dialog("Élő átirat", "<p>Ez a böngésző nem támogatja az élő átiratot. Androidon a <b>Chrome</b> tudja.</p><p>Hangfelvételhez a Felvételek panelen állítsd a módot „hangfelvétel”-re.</p>", [["Rendben", "pri"]]); return; }
+    const now = Date.now(), r = { id: uid(), nb: S.nb.id, start: now, end: null, segs: [{ t0: now, t1: null, off: 0 }], dur: 0, type: "text", audio: false, size: 0, tr: [] };
+    recNow = { r, mr: null, stream: null, chunks: [], paused: false, timer: 0, saveT: 0, sr: null, srOn: false, interim: "", wake: null };
+    try { if (navigator.wakeLock) recNow.wake = await navigator.wakeLock.request("screen"); } catch (_) {}
+    recNow.timer = setInterval(recTick, 500); recNow.saveT = setInterval(() => recPersist(false), 15000);
+    RECS.push(r); saveRecs();
+    $("recBar").style.top = ($("top").getBoundingClientRect().bottom + 8) + "px"; $("recBar").hidden = false; recTick(); markRecBtn(); drawInk();
+    srStart(); toast("Átirat elindult (hang nélkül)"); return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { dialog("Hangfelvétel", "<p>Ez a böngésző nem támogatja a hangfelvételt.</p>", [["Bezár", "pri"]]); return; }
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
   catch (e) { dialog("Hangfelvétel", `<p>A mikrofon nem érhető el (${esc(e.name || e.message)}). Engedélyezd a mikrofont a böngésző címsorában a lakat ikonnál, majd próbáld újra.</p>`, [["Bezár", "pri"]]); return; }
   const type = recMime(); let mr;
   try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined); } catch (e) { mr = new MediaRecorder(stream); }
@@ -2505,36 +2515,36 @@ async function recStart() {
   recNow.saveT = setInterval(() => recPersist(false), 30000);
   RECS.push(r); saveRecs();
   $("recBar").style.top = ($("top").getBoundingClientRect().bottom + 8) + "px"; $("recBar").hidden = false; recTick(); markRecBtn(); drawInk();
-  if (S.set.recLive) srStart();
-  toast("Felvétel elindult");
+  toast("Hangfelvétel elindult");
 }
 function recElapsed(r) { let t = 0; for (const g of r.segs) t += (g.t1 || Date.now()) - g.t0; return t; }
-function recTick() { if (!recNow) return; $("recTime").textContent = (recNow.paused ? "SZÜNET " : "FELVÉTEL ") + fmtDur(recElapsed(recNow.r));
+function recTick() { if (!recNow) return; $("recTime").textContent = (recNow.paused ? "SZÜNET " : recNow.mr ? "FELVÉTEL " : "ÁTIRAT ") + fmtDur(recElapsed(recNow.r));
   const pg = S.page, k = pg ? pg.id + ":" + pg.strokes.length : ""; if (k !== recNow.lastK && !act) { recNow.lastK = k; if (S.set.recMarks) drawInk(); } }
 async function recPersist(final) {
-  if (!recNow) return; const { r, chunks } = recNow; if (!chunks.length) return;
+  if (!recNow) return; const { r, chunks } = recNow; if (!recNow.mr) { r.dur = recElapsed(r); saveRecs(); return; } if (!chunks.length) return;
   const blob = new Blob(chunks, { type: r.type }); r.size = blob.size; r.dur = recElapsed(r);
   try { await DB.put("blobs", blob, "rec-" + r.id); saveRecs(); } catch (e) { logError("felvétel-mentés", e && e.message); if (final) toast("A felvétel mentése nem sikerült: " + e.message); }
 }
 function recPause() {
   if (!recNow) return; const n = recNow, g = n.r.segs[n.r.segs.length - 1];
-  if (!n.paused) { try { n.mr.pause(); } catch (_) {} g.t1 = Date.now(); n.paused = true; srStop(); }
-  else { try { n.mr.resume(); } catch (_) {} n.r.segs.push({ t0: Date.now(), t1: null, off: recElapsed(n.r) }); n.paused = false; if (S.set.recLive) srStart(); }
+  if (!n.paused) { try { n.mr && n.mr.pause(); } catch (_) {} g.t1 = Date.now(); n.paused = true; srStop(); }
+  else { try { n.mr && n.mr.resume(); } catch (_) {} n.r.segs.push({ t0: Date.now(), t1: null, off: recElapsed(n.r) }); n.paused = false; if (!n.mr) srStart(); }
   $("recPause").textContent = n.paused ? "Folytatás" : "Szünet"; recTick(); saveRecs();
 }
 async function recStop() {
   if (!recNow) return; const n = recNow;
   srStop(); clearInterval(n.timer); clearInterval(n.saveT);
   const g = n.r.segs[n.r.segs.length - 1]; if (!g.t1) g.t1 = Date.now();
-  await new Promise(res => { n.mr.onstop = res; try { n.mr.stop(); } catch (_) { res(); } setTimeout(res, 3000); });
-  n.stream.getTracks().forEach(t => t.stop()); try { n.wake && n.wake.release(); } catch (_) {}
+  if (n.mr) await new Promise(res => { n.mr.onstop = res; try { n.mr.stop(); } catch (_) { res(); } setTimeout(res, 3000); });
+  if (n.stream) n.stream.getTracks().forEach(t => t.stop()); try { n.wake && n.wake.release(); } catch (_) {}
+  if (n.sr) await new Promise(res => setTimeout(res, 600)); // az utolsó mondat még beérhet
   n.r.end = Date.now(); await recPersist(true);
   recNow = null; $("recBar").hidden = true; markRecBtn(); drawInk();
   if (!$("recPanel").hidden) renderRecList();
-  toast("Felvétel mentve · " + fmtDur(n.r.dur) + " · " + fmtBytes(n.r.size));
+  toast(n.mr ? "Felvétel mentve · " + fmtDur(n.r.dur) + " · " + fmtBytes(n.r.size) : "Átirat mentve · " + fmtDur(n.r.dur) + " · " + n.r.tr.length + " részlet");
 }
 document.addEventListener("visibilitychange", () => { if (document.hidden && recNow) recPersist(false); });
-function markRecBtn() { const b = $("bRec"); b.classList.toggle("on", !!recNow); b.querySelector(".lb").textContent = recNow ? "Felvétel leállítása" : "Hangfelvétel"; }
+function markRecBtn() { const b = $("bRec"); b.classList.toggle("on", !!recNow); b.querySelector(".lb").textContent = recNow ? (recNow.mr ? "Felvétel leállítása" : "Átirat leállítása") : (S.set.recLive ? "Átirat indítása" : "Hangfelvétel"); }
 /* --- Élő átirat (a böngésző beszédfelismerése) --- */
 function srStart() {
   if (!recNow || recNow.paused || recNow.srOn) return;
@@ -2563,7 +2573,7 @@ function srStart() {
   markLive();
 }
 function srStop() { if (!recNow || !recNow.sr) return; recNow.srOn = false; try { recNow.sr.stop(); } catch (_) {} recNow.interim = ""; }
-function markLive() { renderLive(); const b = $("recLive"); b.setAttribute("aria-pressed", String(!!S.set.recLive)); b.textContent = S.set.recLive ? "Élő átirat: BE" : "Élő átirat: KI"; }
+function markLive() { renderLive(); const b = $("recLive"); b.setAttribute("aria-pressed", String(!!S.set.recLive)); b.textContent = S.set.recLive ? "Mód: csak átirat" : "Mód: hangfelvétel"; }
 function renderLive() { if ($("recPanel").hidden || !recNow) return; const box = $("recLiveBox"); if (!box) return;
   box.textContent = "";
   if (!recNow.srOn) box.append(el("div", "trl interim", S.set.recLive ? "Az élő átirat nem fut." : "Az élő átirat ki van kapcsolva – fent bekapcsolhatod."));
@@ -2572,6 +2582,7 @@ function renderLive() { if ($("recPanel").hidden || !recNow) return; const box =
 /* --- Lejátszás --- */
 let PL = null;
 async function playRec(r, off) {
+  if (r.audio === false) { recTranscript(r, off); return; }
   const blob = await DB.get("blobs", "rec-" + r.id);
   if (!blob) { toast(recNow && recNow.r === r ? "A felvétel még fut – leállítás után hallgatható vissza" : "A felvétel nincs ezen az eszközön"); return; }
   if (!PL || PL.r !== r) { plClose(); const a = new Audio(URL.createObjectURL(blob)); a.preload = "auto"; PL = { r, a, rate: 1 };
@@ -2610,26 +2621,33 @@ function renderRecList() {
   for (const r of list) {
     const c = el("div", "reccard");
     c.append(el("span", "t", new Date(r.start).toLocaleString("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })));
-    c.append(el("span", "meta", fmtDur(r.dur) + " · " + fmtBytes(r.size || 0) + " · " + (r.tr && r.tr.length ? r.tr.length + " átirat-részlet" : "nincs átirat") + (r.sum ? " · van összefoglaló" : "")));
+    c.append(el("span", "meta", fmtDur(r.dur) + " · " + (r.audio === false ? "csak átirat" : fmtBytes(r.size || 0)) + " · " + (r.tr && r.tr.length ? r.tr.length + " átirat-részlet" : "nincs átirat") + (r.sum ? " · van összefoglaló" : "")));
     const row = el("div", "btns");
     const b = (t, fn, cls) => { const x = el("button", "tb" + (cls ? " " + cls : ""), t); x.onclick = fn; row.append(x); };
-    b("Lejátszás", () => { closePanels(); playRec(r, 0); });
+    if (r.audio !== false) b("Lejátszás", () => { closePanels(); playRec(r, 0); });
     b(r.sum ? "Összefoglaló" : "Összefoglaló (Claude)", () => recSummary(r));
     if (r.tr && r.tr.length) b("Átirat", () => recTranscript(r));
-    b("Letöltés", async () => { const bl = await DB.get("blobs", "rec-" + r.id); if (!bl) { toast("A hangfájl nincs ezen az eszközön"); return; }
+    if (r.tr && r.tr.length) b("Átirat letöltése", () => { const nb = nbOf(r.nb);
+      const txt = `${nb ? nb.name : ""} – ${new Date(r.start).toLocaleString("hu-HU")} – ${fmtDur(r.dur)}\n(Vázlatos gépi átirat)\n\n` + r.tr.map(t => `[${fmtDur(t.off)}] ${t.text}`).join("\n") + "\n";
+      downloadBlob(new Blob(["\ufeff" + txt], { type: "text/plain;charset=utf-8" }), `${safeName(nb ? nb.name : "Átirat")} – átirat ${new Date(r.start).toISOString().slice(0, 16).replace("T", " ").replace(":", "-")}.txt`); });
+    if (r.audio !== false) b("Letöltés", async () => { const bl = await DB.get("blobs", "rec-" + r.id); if (!bl) { toast("A hangfájl nincs ezen az eszközön"); return; }
       downloadBlob(bl, `${safeName(S.nb.name)} – felvétel ${new Date(r.start).toISOString().slice(0, 16).replace("T", " ").replace(":", "-")}.${/mp4/.test(r.type) ? "m4a" : /ogg/.test(r.type) ? "ogg" : "webm"}`); });
-    b("Törlés", () => dialog("Felvétel törlése", `<p>A ${fmtDur(r.dur)} hosszú felvétel és az átirata törlődik erről az eszközről. Ez nem vonható vissza.</p>`, [["Mégse"], ["Törlés", "dan", async () => {
+    b("Törlés", () => dialog("Felvétel törlése", `<p>A ${fmtDur(r.dur)} hosszú ${r.audio === false ? "átirat" : "felvétel és az átirata"} törlődik erről az eszközről. Ez nem vonható vissza.</p>`, [["Mégse"], ["Törlés", "dan", async () => {
       if (PL && PL.r === r) plClose(); RECS = RECS.filter(x => x !== r); saveRecs(); try { await DB.del("blobs", "rec-" + r.id); } catch (_) {} renderRecList(); drawInk(); }]]), "dan-t");
     c.append(row); box.append(c);
   }
   if (!list.length) box.append(el("div", "empty", "Ebben a füzetben még nincs hangfelvétel."));
+  markLive();
   $("recSup").textContent = SRec ? "Élő átirat: ez a böngésző támogatja (internet kell hozzá)." : "Élő átirat: ez a böngésző NEM támogatja – Androidon Chrome-ban működik.";
   $("recMarksT").setAttribute("aria-pressed", String(!!S.set.recMarks)); $("recMarksT").textContent = S.set.recMarks ? "Jelek a margón: BE" : "Jelek a margón: KI";
 }
-function recTranscript(r) {
-  const d = document.createElement("div"); d.className = "dlgbody";
-  d.innerHTML = `<p>Vázlatos átirat a böngésző beszédfelismeréséből. Az időpontra koppintva onnan szól a felvétel.</p><div class="trbox">${r.tr.map((t, i) => `<div class="trl"><button class="tt" data-i="${i}">${fmtDur(t.off)}</button><span>${esc(t.text)}</span></div>`).join("")}</div>`;
+function recTranscript(r, at) {
+  const d = document.createElement("div"), txtOnly = r.audio === false; d.className = "dlgbody";
+  if (!r.tr || !r.tr.length) { dialog("Átirat", "<p>Ehhez nem készült átirat-szöveg.</p>", [["Bezár", "pri"]]); return; }
+  let near = -1; if (at != null) { let best = 1e15; r.tr.forEach((t, i) => { const dd = Math.abs(t.off - at) + (t.off < at - 3000 ? 5000 : 0); if (dd < best) { best = dd; near = i; } }); }
+  d.innerHTML = `<p>Vázlatos átirat a böngésző beszédfelismeréséből.${txtOnly ? (at != null ? ` A kiemelt rész hangzott el, amikor ${fmtDur(at)}-kor azt a sort írtad.` : "") : " Az időpontra koppintva onnan szól a felvétel."}</p><div class="trbox">${r.tr.map((t, i) => `<div class="trl${i === near ? " near" : ""}">${txtOnly ? `<span class="tt">${fmtDur(t.off)}</span>` : `<button class="tt" data-i="${i}">${fmtDur(t.off)}</button>`}<span>${esc(t.text)}</span></div>`).join("")}</div>`;
   d.querySelectorAll("button.tt").forEach(b => b.onclick = () => { $("dlg").hidden = true; playRec(r, r.tr[+b.dataset.i].off); });
+  if (near >= 0) setTimeout(() => { const e = d.querySelector(".trl.near"); if (e) e.scrollIntoView({ block: "center" }); }, 60);
   dialog("Átirat – " + new Date(r.start).toLocaleString("hu-HU"), d, [["Bezár", "pri"]]);
 }
 /* --- Összefoglaló a Claude-dal (az átiratból) --- */
@@ -2640,7 +2658,7 @@ Szabályok: csak azt írd le, ami az átiratban vagy a jegyzetben valóban elhan
 async function recSummary(r) {
   if (r.sum && !recSummary.force) { recSumShow(r); return; }
   recSummary.force = false;
-  if (!r.tr || !r.tr.length) { dialog("Összefoglaló", "<p>Ehhez a felvételhez nincs átirat. Az összefoglalóhoz kapcsold be az <b>Élő átiratot</b> a felvétel indításakor (Felvételek panel), mert a Claude hangot nem fogad, csak szöveget.</p>", [["Bezár", "pri"]]); return; }
+  if (!r.tr || !r.tr.length) { dialog("Összefoglaló", "<p>Ehhez a felvételhez nincs átirat. Az összefoglalóhoz <b>Csak átirat</b> módban indítsd a felvételt (Felvételek panel › Mód), mert a Claude hangot nem fogad, csak szöveget.</p>", [["Bezár", "pri"]]); return; }
   if (!aiReady()) { dialog("Claude AI", "<p>Előbb add meg a közvetítő címét és a tokent: AI eszközök › AI beállítások.</p>", [["Bezár", "pri"]]); return; }
   const nb = nbOf(r.nb); if (nb) await loadNotebookPages(nb);
   const notes = nb ? nbPages(nb).map(id => S.pages.get(id)).filter(pg => pg && pg.ai && pg.ai.res && pg.strokes.some(s => s.ts && recOffset(r, s.ts) != null))
@@ -2683,7 +2701,7 @@ $("bRec").onclick = () => recNow ? recStop() : recStart();
 $("recPause").onclick = recPause; $("recStop").onclick = recStop;
 $("bRecList").onclick = () => { if (openPanel("recPanel")) renderRecList(); };
 $("recClose").onclick = () => closePanels();
-$("recLive").onclick = () => { S.set.recLive = !S.set.recLive; saveSettings(); markLive(); if (recNow) { if (S.set.recLive) srStart(); else srStop(); } };
+$("recLive").onclick = () => { if (recNow) { toast("Felvétel közben nem váltható – előbb állítsd le"); return; } S.set.recLive = !S.set.recLive; saveSettings(); markLive(); markRecBtn(); };
 $("recTest").onclick = () => {
   const out = $("recTestOut"); out.hidden = false;
   if (!SRec) { out.textContent = "Ez a böngésző nem támogatja a beszédfelismerést."; return; }
@@ -2972,7 +2990,7 @@ async function start() {
   for (const k of ["lastSec", "lastPage", "navOpen"]) if (!S.set[k] || typeof S.set[k] !== "object") S.set[k] = {};
   S.notebooks = ((await DB.get("kv", "notebooks")) || []).map(normNb);
   S.deleted = (await DB.get("kv", "deleted")) || { pages: {}, notebooks: {} };
-  await loadRecs(); recFinishOrphans();
+  await loadRecs(); recFinishOrphans(); markRecBtn();
   if (!S.notebooks.length) S.notebooks.push(newNotebook("Jegyzetek", NB_COLORS[0], "grid"));
   await saveNotebooks();
   narrow = innerWidth < 900; navVis = !narrow && S.set.navOn !== false; pagesVis = !narrow && S.set.pagesOn !== false;
