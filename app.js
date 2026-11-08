@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.6.0";
+const APP_VERSION = "3.6.1";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2337,10 +2337,11 @@ async function aiCall(body) {
   let j = null; try { j = await r.json(); } catch (_) {}
   if (!r.ok) {
     const raw = j ? (typeof j.error === "string" ? j.error : (j.error && (j.error.message || j.error.type)) || "") : "";
+    const typ = j && j.error && typeof j.error === "object" ? j.error.type || "" : "";
     if (r.status === 401) throw new Error("A token nem egyezik a Cloudflare-ben beállított APP_TOKEN-nel.");
-    if (/credit|balance/i.test(raw)) throw new Error("Elfogyott az egyenleg a Claude Console-ban.");
-    if (/model/i.test(raw)) throw new Error("Ismeretlen modell: " + (S.set.aiModel || "") + ".");
-    throw new Error((raw || "HTTP " + r.status));
+    if (/credit balance/i.test(raw)) throw new Error("Elfogyott az egyenleg a Claude Console-ban. (" + raw + ")");
+    if (typ === "not_found_error" || raw === "model_not_allowed") throw new Error("Ismeretlen modell: " + (S.set.aiModel || "") + ". (" + raw + ")");
+    throw new Error("HTTP " + r.status + (raw ? " – " + raw : ""));
   }
   return j;
 }
@@ -2374,7 +2375,7 @@ async function aiAnalyzePage(pg) {
   const marks = pg.marks.map(m => ({ jelolo: m.k === "box" ? "feladat (jelölőnégyzet)" : "kérdés (?)", kesz: !!m.done, y: Math.round(m.y / ph * 1000) / 10, szoveg: m.text || null }));
   const ctx = `Füzet (projekt): ${r ? r.nb.name : "?"} · szakasz: ${r ? r.sec.name : "?"} · ${pageNoOf(pg)}. lap · létrehozva: ${fmtDate(pg.created)}${pg.title ? " · cím: " + pg.title : ""}
 Az app jelölői ezen a lapon: ${marks.length ? JSON.stringify(marks) : "nincs"}`;
-  const j = await aiCall({ max_tokens: 2500, temperature: 0, system: AI_SYS,
+  const j = await aiCall({ max_tokens: 2500, system: AI_SYS,
     messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobB64(blob) } }, { type: "text", text: ctx }] }] });
   const res = aiParse(aiText(j));
   pg.ai = { at: Date.now(), model: j.model || S.set.aiModel, upd: pg.updated, res, usage: j.usage || null };
