@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.6.2";
+const APP_VERSION = "3.6.3";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -147,14 +147,14 @@ function serializePage(pg) {
     strokes: pg.strokes.map(serStroke), marks: pg.marks.map(m => ({ ...m })),
     stickers: (pg.stickers || []).map(k => ({ ...k })),
     notes: (pg.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: n.strokes.map(serStroke) })),
-    ai: pg.ai || null };
+    ai: pg.ai || null, aiTitleSkip: pg.aiTitleSkip || undefined };
 }
 function deserializePage(o) {
   return { id: o.id, nb: o.nb, created: o.created, updated: o.updated, paper: o.paper || "grid", bg: o.bg || null, h: o.h || H0, mmW: o.mmW || 210, title: o.title || "",
     strokes: (o.strokes || []).map(deserStroke), marks: (o.marks || []).map(m => ({ ...m })),
     stickers: (o.stickers || []).map(k => ({ ...k })),
     notes: (o.notes || []).map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, c: n.c, ts: n.ts, mt: n.mt, strokes: (n.strokes || []).map(deserStroke) })),
-    ai: o.ai || null };
+    ai: o.ai || null, aiTitleSkip: o.aiTitleSkip || undefined };
 }
 const pageTimers = {};
 function persistPage(pg, now) {
@@ -2348,13 +2348,15 @@ async function aiCall(body) {
 const blobB64 = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(b); });
 const AI_SYS = `Egy épületgépész tervező kézírásos projektjegyzet-lapját kapod képként (CyberNote jegyzetfüzet). A lapon tollal írt magyar szöveg, vázlatok, számolások lehetnek, rácsos vagy üres papíron; importált PDF vagy kép is lehet a háttérben.
 Olvasd el a lapot, és KIZÁRÓLAG egy JSON objektumot adj vissza, magyarázat és kódblokk nélkül, ezzel a szerkezettel:
-{"osszefoglalo":"1–3 mondat arról, mi van a lapon",
+{"cim":"3–6 szavas lapcím",
+ "osszefoglalo":"1–3 mondat arról, mi van a lapon",
  "feladatok":[{"szoveg":"…","felelos":null,"allapot":"nyitott","var_kitol":null,"y":0,"jelolt":false,"biztos":true}],
  "kerdesek":[{"szoveg":"…","y":0,"jelolt":false,"biztos":true}],
  "dontesek":[{"szoveg":"…","y":0,"biztos":true}],
  "berendezesek":[{"kod":"…","megnevezes":null,"y":0,"biztos":true}],
  "nem_olvashato":[{"y":0,"megjegyzes":"…"}]}
 Szabályok:
+- "cim": rövid, tárgyszerű magyar lapcím a lap fő témáiból (3–6 szó, pont nélkül), pl. „Gázégő CE-papírok, Gázteco leírás”. Szám és méret ne legyen benne.
 - "y": a sor függőleges helye a lap magasságának százalékában (0 = teteje, 100 = alja).
 - Feladat: teendő, akár van mellette jelölőnégyzet, akár nincs. "felelos": ha a sor megnevez valakit, aki csinálja (pl. „Tamás nézze át” → "Tamás"), különben null. "allapot": "var", ha másra várunk (várjuk, kérve, bekérve, e-mailben kérve, választ vár); "kesz", ha ki van húzva vagy ki van pipálva; egyébként "nyitott". "var_kitol": kitől várunk, ha kiderül.
 - Kérdés: kérdőjellel végződő vagy kérdő mondat, akkor is, ha nincs mellette jelölő.
@@ -2388,7 +2390,7 @@ function aiResultBody(ai) {
   const pos = x => typeof x.y === "number" ? ` <span class="ai-pos">${Math.round(x.y)}%</span>` : "";
   const sect = (title, arr, fn) => arr.length ? `<strong>${title} (${arr.length})</strong><ul class="ai-list">${arr.map(fn).join("")}</ul>` : "";
   const st = { nyitott: "", var: '<span class="ai-chip wait">várunk rá</span>', kesz: '<span class="ai-chip done">kész</span>' };
-  let h = `<p>${esc(o.osszefoglalo || "")}</p>`;
+  let h = (o.cim ? `<p><b>Javasolt cím:</b> ${esc(o.cim)}</p>` : "") + `<p>${esc(o.osszefoglalo || "")}</p>`;
   h += sect("Feladatok", o.feladatok, x => `<li>${esc(x.szoveg || "")} ${x.felelos ? `<span class="ai-chip who">${esc(x.felelos)}</span>` : ""}${st[x.allapot] || ""}${x.var_kitol && x.var_kitol !== x.felelos ? ` <span class="ai-chip wait">${esc(x.var_kitol)}</span>` : ""}${x.jelolt ? "" : ' <span class="ai-chip auto">jelölő nélkül</span>'}${unsure(x)}${pos(x)}</li>`);
   h += sect("Kérdések", o.kerdesek, x => `<li>${esc(x.szoveg || "")}${x.jelolt ? "" : ' <span class="ai-chip auto">jelölő nélkül</span>'}${unsure(x)}${pos(x)}</li>`);
   h += sect("Döntések", o.dontesek, x => `<li>${esc(x.szoveg || "")}${unsure(x)}${pos(x)}</li>`);
@@ -2404,9 +2406,27 @@ async function aiRun(pg) {
   if (aiBusy) return;
   if (!aiReady()) { dialog("Claude AI", "<p>Az elemzéshez add meg a közvetítő címét és a tokent: Fájl › Beállítások és szinkron › Claude AI.</p>", [["Mégse"], ["Beállítások", "pri", () => setTimeout(settingsDialog, 0)]]); return; }
   aiBusy = true; busy("Claude elemzi a lapot…");
-  try { const ai = await aiAnalyzePage(pg); unbusy(); aiShow(pg, ai); }
+  try { const ai = await aiAnalyzePage(pg); unbusy(); aiTitleOffer(pg, ai, () => aiShow(pg, ai)); }
   catch (e) { unbusy(); logError("ai", e && e.message); dialog("Az elemzés nem sikerült", `<p>${esc(e.message || String(e))}</p>`, [["Bezár", "pri"]]); }
   finally { aiBusy = false; }
+}
+/* Lapcím-javaslat: csak üres címnél, és csak jóváhagyással; a javasolt cím szerkeszthető */
+function aiTitleOffer(pg, ai, next) {
+  const cim = String((ai.res && ai.res.cim) || "").trim().slice(0, 80);
+  if (!cim || (pg.title || "").trim() || (pg.aiTitleSkip && pg.aiTitleSkip === cim)) { next(); return; }
+  const body = document.createElement("div"); body.className = "dlgbody";
+  body.innerHTML = `<p>A Claude ezt a címet javasolja a(z) ${pageNoOf(pg)}. lapnak. Átírhatod, mielőtt elfogadod.</p>
+    <label for="aiTitle">Lap címe</label><input type="text" id="aiTitle" maxlength="80">`;
+  const inp = body.querySelector("#aiTitle"); inp.value = cim;
+  dialog("Lapcím-javaslat", body, [
+    ["Kihagyom", "", () => { pg.aiTitleSkip = cim; persistPage(pg, true); setTimeout(next, 0); }],
+    ["Elfogadom", "pri", () => {
+      const v = inp.value.trim(); if (!v) { inp.focus(); return false; }
+      pg.title = v; delete pg.aiTitleSkip; touchPage(pg); if (pg.ai) pg.ai.upd = pg.updated; persistPage(pg, true);
+      renderPageList(); if (S.page === pg) updTitle(); toast("Lapcím mentve"); setTimeout(next, 0);
+    }]]);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("dlgBtns").lastChild.click(); } });
+  setTimeout(() => { inp.focus(); inp.select(); }, 60);
 }
 function aiShow(pg, ai) {
   const stale = ai.upd && pg.updated > ai.upd + 1000;
