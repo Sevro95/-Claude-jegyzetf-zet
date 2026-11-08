@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#0D0915">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="CyberNote">
-<meta name="app-version" content="3.6.3">
+<meta name="app-version" content="3.7.0">
 <title>CyberNote</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=3.6.3">
+<link rel="stylesheet" href="app.css?v=3.7.0">
 </head>
 <body>
 
@@ -109,6 +109,7 @@
     <!-- AI eszközök -->
     <div class="rpanel" data-panel="ai" role="tabpanel" hidden>
       <button class="rb" id="bAi"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L19 9.5l-5.2 1.6L12 16l-1.8-4.9L5 9.5l5.2-1.6z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span><span class="lb">Lap elemzése</span></button>
+      <button class="rb" id="bAiList" aria-expanded="false"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M9 11h6M9 14.5h6M9 18h4"/></svg></span><span class="lb">Elemzések</span></button>
       <span class="rsep"></span>
       <button class="rb" id="bAiSet"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></span><span class="lb">AI beállítások</span></button>
     </div>
@@ -265,6 +266,16 @@
   <p class="note">Koppintásra a lapjára ugrik. A négyzettel itt is kipipálhatod.</p>
 </section>
 
+<!-- AI elemzések panel -->
+<section id="aiPanel" class="pop tall" hidden aria-label="AI elemzések">
+  <div class="row between nowrap"><h2>AI elemzések</h2>
+    <button id="aiClose" class="icon" aria-label="Panel bezárása"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <label class="row chk"><input type="checkbox" id="aiAll"> Összes füzet</label>
+  <div class="list" id="aiListBox"></div>
+  <div class="seg"><button id="aiPdf">PDF mentés</button><button id="aiDocx">Word mentés</button></div>
+  <p class="note">Koppintásra a lapjára ugrik, és megmutatja az elemzést. A mentés a listában lévő elemzéseket tartalmazza, lapkép nélkül.</p>
+</section>
+
 <!-- Névjegyek panel -->
 <section id="contacts" class="pop tall" hidden aria-label="Projekt névjegyei">
   <div class="row between nowrap"><h2 id="ctTitle">Névjegyek</h2>
@@ -286,6 +297,6 @@
 <div class="pendbg" id="penDbg" hidden></div>
 <div class="busy" id="busy" hidden><div class="bbox"><div class="spin"></div><span id="busyText">Dolgozom…</span></div></div>
 
-<script src="app.js?v=3.6.3"></script>
+<script src="app.js?v=3.7.0"></script>
 </body>
 </html>

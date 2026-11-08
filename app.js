@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.6.3";
+const APP_VERSION = "3.7.0";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -70,6 +70,8 @@ const DB = {
   get(store, key) { return this.tx(store, "readonly", s => s.get(key)); },
   put(store, val, key) { return this.tx(store, "readwrite", s => key === undefined ? s.put(val) : s.put(val, key)); },
   del(store, key) { return this.tx(store, "readwrite", s => s.delete(key)); },
+  each(store, fn) { return new Promise((res, rej) => { const t = this.db.transaction(store, "readonly"), r = t.objectStore(store).openCursor();
+    r.onsuccess = () => { const c = r.result; if (c) { fn(c.value, c.key); c.continue(); } }; t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
 };
 
 /* ================= Állapot ================= */
@@ -1089,8 +1091,8 @@ function markViewBtns() {
 $("vNotes").onclick = () => { S.set.notesOn = !S.set.notesOn; saveSettings(); markViewBtns(); if (!S.set.notesOn) hideNoteBar(); drawInk(); toast(S.set.notesOn ? "Jegyzetcetlik látszanak" : "Jegyzetcetlik elrejtve (a lapon megmaradnak)"); };
 
 /* ================= Panelek és menüszalag ================= */
-const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu"];
-const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts" };
+const PANELS = ["pPen", "pHi", "pPc", "pEr", "fileMenu", "tasks", "contacts", "nbMenu", "aiPanel"];
+const PANEL_BTN = { fileMenu: "tabFile", tasks: "bTasks", contacts: "bContacts", aiPanel: "bAiList" };
 function closePanels(except) {
   for (const id of PANELS) if (id !== except) { $(id).hidden = true; const b = PANEL_BTN[id]; if (b) $(b).setAttribute("aria-expanded", "false"); }
 }
@@ -2436,6 +2438,146 @@ function aiShow(pg, ai) {
 $("bAiSet").onclick = () => { settingsDialog(); setTimeout(() => { const f = document.getElementById("aiUrl"); if (f) f.scrollIntoView({ block: "center" }); }, 60); };
 $("bAi").onclick = () => { const pg = S.page; if (!pg) return; if (pg.ai && pg.ai.res) aiShow(pg, pg.ai); else aiRun(pg); };
 
+/* ================= Tárhely ================= */
+const fmtBytes = n => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1).replace(".", ",") + " MB" : (n / 1073741824).toFixed(2).replace(".", ",") + " GB";
+async function storageReport() {
+  let pages = 0, ai = 0, nPages = 0, nAi = 0, img = 0, nImg = 0, pdf = 0, nPdf = 0, other = 0;
+  await DB.each("pages", v => { nPages++; const a = v.ai ? JSON.stringify(v.ai).length : 0; if (a) nAi++; ai += a; pages += JSON.stringify(v).length - a; });
+  await DB.each("blobs", v => { const n = (v && v.size) || 0, t = (v && v.type) || ""; if (/pdf/.test(t)) { pdf += n; nPdf++; } else if (/^image\//.test(t)) { img += n; nImg++; } else other += n; });
+  const L = [];
+  L.push(`Lapok (vonalak, jelölők): ${fmtBytes(pages)} · ${nPages} lap`);
+  L.push(`Képek (lapháttér, Képtár, PDF-oldalak képe): ${fmtBytes(img)} · ${nImg} db`);
+  L.push(`Importált PDF-fájlok: ${fmtBytes(pdf)} · ${nPdf} db`);
+  L.push(`AI-elemzések: ${fmtBytes(ai)} · ${nAi} lap`);
+  if (other) L.push(`Egyéb: ${fmtBytes(other)}`);
+  L.push(`Összesen (app adatai): ${fmtBytes(pages + ai + img + pdf + other)}`);
+  if (navigator.storage && navigator.storage.estimate) {
+    const e = await navigator.storage.estimate(); L.push("");
+    L.push(`Böngésző szerint használt: ${fmtBytes(e.usage || 0)} (programfájlokkal együtt)`);
+    L.push(`A böngésző által engedélyezett keret: kb. ${fmtBytes(e.quota || 0)}`);
+  }
+  if (navigator.storage && navigator.storage.persisted) L.push(`Tartós tárolás: ${(await navigator.storage.persisted()) ? "bekapcsolva (a böngésző nem törli magától)" : "nincs megadva – a böngésző helyhiánynál törölhet"}`);
+  return L.join("\n");
+}
+
+/* ================= AI elemzések lista és mentés ================= */
+function aiItems(all) {
+  const out = [];
+  for (const nb of all ? S.notebooks : [S.nb]) for (const sec of nb.sections) sec.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg && pg.ai && pg.ai.res) out.push({ nb, sec, pg, no: i + 1 }); });
+  return out;
+}
+let aiRender = 0;
+async function renderAiList() {
+  const token = ++aiRender, box = $("aiListBox"), all = $("aiAll").checked;
+  for (const nb of all ? S.notebooks : [S.nb]) await loadNotebookPages(nb);
+  if (token !== aiRender) return;
+  box.textContent = ""; const items = aiItems(all);
+  for (const it of items) {
+    const { nb, sec, pg, no } = it, o = pg.ai.res, b = el("button", "aicard");
+    b.append(el("span", "t", pg.title || o.cim || no + ". lap"));
+    b.append(el("span", "meta", (all ? nb.name + " › " : "") + sec.name + " · " + no + ". lap · elemezve " + relDate(pg.ai.at) + (pg.ai.upd && pg.updated > pg.ai.upd + 1000 ? " · azóta változott" : "")));
+    if (o.osszefoglalo) b.append(el("span", "s", o.osszefoglalo));
+    const cnt = [[o.feladatok.length, "feladat"], [o.kerdesek.length, "kérdés"], [o.dontesek.length, "döntés"], [o.berendezesek.length, "berendezés"]].filter(x => x[0]).map(x => x[0] + " " + x[1]).join(" · ");
+    if (cnt) b.append(el("span", "c", cnt));
+    b.onclick = async () => { closePanels(); if (S.nb !== nb) await openNotebook(nb.id, pg.id); else await openPage(pg.id); aiShow(pg, pg.ai); };
+    box.append(b);
+  }
+  if (!items.length) box.append(el("div", "empty", "Még nincs elemzett lap" + (all ? "." : " ebben a füzetben.") + " AI eszközök › Lap elemzése."));
+}
+$("bAiList").onclick = () => { if (openPanel("aiPanel")) renderAiList(); };
+$("aiClose").onclick = () => closePanels();
+$("aiAll").onchange = () => renderAiList();
+const AI_ST = { nyitott: "", var: "várunk rá", kesz: "kész" };
+function aiReportBlocks(items, title) {
+  const B = [{ t: "h1", x: title }, { t: "meta", x: `Készült: ${new Date().toLocaleString("hu-HU")} · ${items.length} elemzett lap · CyberNote ${APP_VERSION}` },
+    { t: "meta", x: "Az elemzést a Claude készítette a kézírásos lapokból. A számokat, méreteket és a bizonytalannak jelölt sorokat a lapon ellenőrizd." }];
+  const tag = x => (x.biztos === false ? " (bizonytalan)" : "");
+  for (const { nb, sec, pg, no } of items) {
+    const o = pg.ai.res;
+    B.push({ t: "h2", x: `${nb.name} › ${sec.name} › ${no}. lap${pg.title ? " – " + pg.title : ""}` });
+    B.push({ t: "meta", x: `Lap létrehozva: ${fmtDate(pg.created)} · Elemzés: ${new Date(pg.ai.at).toLocaleString("hu-HU")}${pg.ai.upd && pg.updated > pg.ai.upd + 1000 ? " · a lap azóta változott" : ""}` });
+    if (o.osszefoglalo) B.push({ t: "p", x: o.osszefoglalo });
+    const list = (name, arr, fn) => { if (!arr.length) return; B.push({ t: "sub", x: name }); for (const x of arr) B.push({ t: "li", x: fn(x) }); };
+    list("Feladatok", o.feladatok, x => (x.szoveg || "") + (x.felelos ? " – felelős: " + x.felelos : "") + (AI_ST[x.allapot] ? " – " + AI_ST[x.allapot] : "") + (x.var_kitol && x.var_kitol !== x.felelos ? " (" + x.var_kitol + ")" : "") + tag(x));
+    list("Kérdések", o.kerdesek, x => (x.szoveg || "") + tag(x));
+    list("Döntések", o.dontesek, x => (x.szoveg || "") + tag(x));
+    list("Berendezések", o.berendezesek, x => (x.kod || "") + (x.megnevezes ? " – " + x.megnevezes : "") + tag(x));
+    list("Nem olvasható", o.nem_olvashato, x => x.megjegyzes || "");
+  }
+  return B;
+}
+/* PDF: a szöveget A4-es vásznakra tördeljük (ékezetek miatt), és képként tesszük a PDF-be */
+function aiReportCanvases(B) {
+  const PW = 1240, PH = 1754, M = 96, CW = PW - 2 * M, FONT = 'system-ui, "Segoe UI", Roboto, Arial, sans-serif';
+  const ST = { h1: [36, 700, "#111", 18, 14], h2: [25, 700, "#111", 34, 8], sub: [20, 700, "#222", 12, 4], p: [20, 400, "#222", 6, 6], li: [20, 400, "#222", 2, 2], meta: [16, 400, "#666", 2, 4] };
+  const pages = []; let c, x, y;
+  const newPage = () => { c = document.createElement("canvas"); c.width = PW; c.height = PH; x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, PW, PH); x.textBaseline = "top"; y = M; pages.push(c); };
+  const wrap = (txt, maxW) => { const out = []; for (const para of String(txt).split("\n")) { let line = ""; for (const w of para.split(/\s+/)) { const t = line ? line + " " + w : w; if (x.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; } out.push(line); } return out; };
+  newPage();
+  for (const b of B) {
+    const [fs, fw, col, before, after] = ST[b.t], lh = Math.round(fs * 1.42), ind = b.t === "li" ? 28 : 0;
+    x.font = `${fw} ${fs}px ${FONT}`; const lines = wrap(b.x, CW - ind);
+    if (y > M) y += before;
+    const need = b.t === "h2" || b.t === "sub" ? lh * Math.min(lines.length + 2, 4) : lh;
+    if (y + need > PH - M) newPage();
+    x.font = `${fw} ${fs}px ${FONT}`; x.fillStyle = col;
+    lines.forEach((ln, i) => { if (y + lh > PH - M) { newPage(); x.font = `${fw} ${fs}px ${FONT}`; x.fillStyle = col; }
+      if (b.t === "li" && i === 0) x.fillText("•", M + 8, y); x.fillText(ln, M + ind, y); y += lh; });
+    if (b.t === "h2") { x.fillStyle = "#ccc"; x.fillRect(M, y + 2, CW, 1.5); y += 6; }
+    y += after;
+  }
+  pages.forEach((p, i) => { const g = p.getContext("2d"); g.font = `400 15px ${FONT}`; g.fillStyle = "#888"; g.textAlign = "center"; g.textBaseline = "alphabetic"; g.fillText(`${i + 1} / ${pages.length}`, PW / 2, PH - 44); });
+  return pages;
+}
+async function aiReportPdf(B, title) {
+  const cvs = aiReportCanvases(B), parts = [], offs = []; let len = 0;
+  const push = d => { const b = typeof d === "string" ? u8(d) : d; parts.push(b); len += b.length; };
+  const n = cvs.length, kids = cvs.map((_, i) => `${4 + 3 * i} 0 R`).join(" "), wpt = 595.276, hpt = 841.89;
+  push("%PDF-1.4\n%âãÏÓ\n");
+  for (let i = 0; i < n; i++) {
+    const b = await jpegOf(cvs[i], .9), data = new Uint8Array(await b.arrayBuffer()), w = cvs[i].width, h = cvs[i].height; cvs[i].width = cvs[i].height = 0;
+    const po = 4 + 3 * i, co = po + 1, io = po + 2, content = `q\n${wpt} 0 0 ${hpt} 0 0 cm\n/Im${i} Do\nQ\n`;
+    offs[po] = len; push(`${po} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wpt} ${hpt}] /Resources << /XObject << /Im${i} ${io} 0 R >> >> /Contents ${co} 0 R >>\nendobj\n`);
+    offs[co] = len; push(`${co} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
+    offs[io] = len; push(`${io} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${data.length} >>\nstream\n`);
+    push(data); push("\nendstream\nendobj\n");
+  }
+  offs[1] = len; push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  offs[2] = len; push(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${n} >>\nendobj\n`);
+  offs[3] = len; push(`3 0 obj\n<< /Title ${pdfStr(title)} /Creator ${pdfStr("CyberNote " + APP_VERSION)} >>\nendobj\n`);
+  const size = 4 + 3 * n, xref = len; let xr = `xref\n0 ${size}\n0000000000 65535 f \n`;
+  for (let i = 1; i < size; i++) xr += String(offs[i]).padStart(10, "0") + " 00000 n \n";
+  push(xr + `trailer\n<< /Size ${size} /Root 1 0 R /Info 3 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: "application/pdf" });
+}
+function aiReportDocx(B, title) {
+  const X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const run = (t, o) => `<w:r><w:rPr>${o.b ? "<w:b/>" : ""}${o.c ? `<w:color w:val="${o.c}"/>` : ""}<w:sz w:val="${o.sz}"/></w:rPr><w:t xml:space="preserve">${xesc(t)}</w:t></w:r>`;
+  const P = { h1: { sz: 36, b: 1, bef: 0, aft: 120 }, h2: { sz: 26, b: 1, bef: 320, aft: 60 }, sub: { sz: 22, b: 1, bef: 140, aft: 40 }, p: { sz: 22, bef: 60, aft: 60 }, li: { sz: 22, bef: 0, aft: 20, ind: 360 }, meta: { sz: 18, c: "666666", bef: 0, aft: 40 } };
+  const body = B.map(b => { const o = P[b.t];
+    return `<w:p><w:pPr><w:spacing w:before="${o.bef}" w:after="${o.aft}"/>${o.ind ? `<w:ind w:left="${o.ind}" w:hanging="220"/>` : ""}${b.t === "h2" ? '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="2" w:color="CCCCCC"/></w:pBdr>' : ""}</w:pPr>${run((b.t === "li" ? "• " : "") + b.x, o)}</w:p>`; }).join("");
+  const sect = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>';
+  const doc = X + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}${sect}</w:body></w:document>`;
+  const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  return zipStore([
+    { name: "[Content_Types].xml", data: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>' },
+    { name: "_rels/.rels", data: X + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>' },
+    { name: "docProps/core.xml", data: X + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xesc(title)}</dc:title><dc:creator>CyberNote</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>` },
+    { name: "word/document.xml", data: doc }]);
+}
+async function aiExport(kind) {
+  const all = $("aiAll").checked; for (const nb of all ? S.notebooks : [S.nb]) await loadNotebookPages(nb);
+  const items = aiItems(all); if (!items.length) { toast("Nincs elemzett lap a listában"); return; }
+  const day = new Date().toISOString().slice(0, 10), scopeName = all ? "Összes füzet" : S.nb.name;
+  const title = "AI elemzések – " + scopeName, name = `${safeName(scopeName)} – AI elemzések – ${day}`;
+  busy("Mentés készül…");
+  try { const B = aiReportBlocks(items, title);
+    if (kind === "pdf") downloadBlob(await aiReportPdf(B, title), name + ".pdf"); else downloadBlob(aiReportDocx(B, title), name + ".docx"); }
+  catch (e) { logError("ai-export", e && e.message); toast("A mentés nem sikerült: " + e.message); }
+  finally { unbusy(); }
+}
+$("aiPdf").onclick = () => aiExport("pdf"); $("aiDocx").onclick = () => aiExport("docx");
+
 /* ================= Beállítások ================= */
 function settingsDialog() {
   closePops(); Sync.gis().catch(() => {});
@@ -2459,6 +2601,10 @@ function settingsDialog() {
     <input type="text" id="aiModel" autocomplete="off" spellcheck="false">
     <div class="seg"><button class="btn pri" id="aiSave">Mentés és teszt</button></div>
     <p id="aiState"></p>
+    <strong>Tárhely ezen az eszközön</strong>
+    <p id="stInfo">A jegyzetek a böngésző tárhelyén vannak; a Drive-ra másolat kerül.</p>
+    <div class="seg"><button class="tb" id="stCalc">Tárhely kiszámítása</button></div>
+    <pre id="stText" class="errlog" hidden></pre>
     <strong>S Pen gomb teszt</strong>
     <p>Bekapcsolva a képernyő alján kiírja, mit jelez a toll. Írj a lapra lenyomott oldalsó gombbal, és küldd el a kiírt sort.</p>
     <div class="seg"><button class="tb" id="dbgBtn"></button></div>
@@ -2503,6 +2649,8 @@ function settingsDialog() {
       aiSt.textContent = "Működik ✓ – válasz: " + aiText(j).trim().slice(0, 60); }
     catch (e) { aiSt.textContent = "Nem sikerült: " + e.message; }
   };
+  body.querySelector("#stCalc").onclick = async () => { const pre = body.querySelector("#stText"); pre.hidden = false; pre.textContent = "Számolás…";
+    try { pre.textContent = await storageReport(); } catch (e) { pre.textContent = "Nem sikerült: " + e.message; } };
   markDrive(); markDbg(); markErr();
   dialog("Beállítások és szinkron", body, [["Kész", "pri"]]);
 }
