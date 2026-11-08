@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.8.1";
+const APP_VERSION = "3.8.2";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2542,15 +2542,17 @@ function srStart() {
   const n = recNow, sr = new SRec(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
   sr.onresult = ev => { let interim = "";
     for (let i = ev.resultIndex; i < ev.results.length; i++) { const res = ev.results[i], t = res[0].transcript.trim(); if (!t) continue;
-      if (res.isFinal) { n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t }); saveRecs(); } else interim += t + " "; }
+      if (res.isFinal) { if (!n.r.tr.length) logError("átirat", "első szöveg megérkezett"); n.r.tr.push({ off: Math.max(0, recElapsed(n.r) - 2500), text: t }); saveRecs(); } else interim += t + " "; }
     n.interim = interim.trim(); renderLive(); };
-  sr.onerror = ev => { if (ev.error === "no-speech" || ev.error === "aborted") return;
-    logError("átirat", "hiba: " + ev.error + (ev.message ? " – " + ev.message : ""));
+  const lg = m => { n.srLog = (n.srLog || 0) + 1; if (n.srLog <= 25) logError("átirat", m); };
+  lg("indítás felvétel közben");
+  sr.onaudiostart = () => lg("mikrofon megnyílt"); sr.onspeechstart = () => lg("beszéd észlelve");
+  sr.onerror = ev => { lg("hiba: " + ev.error + (ev.message ? " – " + ev.message : "")); if (ev.error === "no-speech" || ev.error === "aborted") return;
     n.srOn = false; S.set.recLive = false; saveSettings(); markLive();
     const why = { "audio-capture": "a mikrofont a hangfelvétel már használja, és ezen az eszközön a kettő egyszerre nem megy", "not-allowed": "a böngésző nem engedte a beszédfelismerést", "network": "nincs internet, vagy a beszédfelismerő szolgáltatás nem érhető el", "service-not-allowed": "a böngésző nem engedi a beszédfelismerő szolgáltatást", "language-not-supported": "a magyar nyelv nem támogatott" }[ev.error] || ev.error;
     dialog("Az élő átirat leállt", `<p>Ok: ${esc(why)}.</p><p>A hangfelvétel megy tovább, csak átirat nem készül.</p>`, [["Rendben", "pri"]]); };
-  sr.onstart = () => { n.srStarted = true; renderLive(); };
-  sr.onend = () => { if (recNow === n && n.srOn && !n.paused) setTimeout(() => { try { sr.start(); } catch (_) {} }, 300); };
+  sr.onstart = () => { n.srStarted = true; lg("elindult"); renderLive(); };
+  sr.onend = () => { lg("leállt (" + n.r.tr.length + " részlet eddig) – újraindítás"); if (recNow === n && n.srOn && !n.paused) setTimeout(() => { try { sr.start(); } catch (_) {} }, 300); };
   n.sr = sr; n.srOn = true; try { sr.start(); } catch (e) { n.srOn = false; }
   markLive();
 }
@@ -2676,6 +2678,18 @@ $("recPause").onclick = recPause; $("recStop").onclick = recStop;
 $("bRecList").onclick = () => { if (openPanel("recPanel")) renderRecList(); };
 $("recClose").onclick = () => closePanels();
 $("recLive").onclick = () => { S.set.recLive = !S.set.recLive; saveSettings(); markLive(); if (recNow) { if (S.set.recLive) srStart(); else srStop(); } };
+$("recTest").onclick = () => {
+  const out = $("recTestOut"); out.hidden = false;
+  if (!SRec) { out.textContent = "Ez a böngésző nem támogatja a beszédfelismerést."; return; }
+  if (recNow) { out.textContent = "Felvétel közben nem futtatható – előbb állítsd le a felvételt."; return; }
+  const sr = new SRec(), log = []; let txt = "", t0 = Date.now(); sr.lang = "hu-HU"; sr.continuous = true; sr.interimResults = true;
+  const show = () => { out.textContent = (txt ? "Felismert szöveg: " + txt : "Beszélj most magyarul (10 mp)…") + "\n" + log.join(" · "); };
+  const L = m => { log.push(((Date.now() - t0) / 1000).toFixed(1) + " mp: " + m); show(); };
+  sr.onstart = () => L("elindult"); sr.onaudiostart = () => L("mikrofon megnyílt"); sr.onspeechstart = () => L("beszéd észlelve");
+  sr.onresult = ev => { txt = ""; for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript + " "; show(); };
+  sr.onerror = ev => L("hiba: " + ev.error); sr.onend = () => { L("vége"); logError("átirat-próba", (txt ? "OK: " + txt.slice(0, 80) : "nincs szöveg") + " | " + log.join(" · ")); };
+  try { sr.start(); show(); setTimeout(() => { try { sr.stop(); } catch (_) {} }, 10000); } catch (e) { L("nem indult: " + e.message); }
+};
 $("recMarksT").onclick = () => { S.set.recMarks = !S.set.recMarks; saveSettings(); drawInk(); renderRecList(); };
 $("recBarList").onclick = () => { if (openPanel("recPanel")) renderRecList(); };
 
