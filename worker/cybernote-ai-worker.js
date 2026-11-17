@@ -8,6 +8,8 @@
 //   ALLOWED_ORIGIN     (Text)     – https://sevro95.github.io
 //   DEFAULT_MODEL      (Text)     – pl. a Sonnet 5.5 modellazonosítója a Console-ból
 //   MODELS             (Text, opcionális) – engedélyezett modellek vesszővel elválasztva
+//   ADMIN_API_KEY      (Secret, opcionális) – sk-ant-admin… kulcs; ezzel a GET /usage visszaadja
+//                      a Console szerinti havi költést (Usage & Cost Admin API, cost_report)
 
 export default {
   async fetch(request, env) {
@@ -15,7 +17,7 @@ export default {
     const origin = request.headers.get("Origin") || "";
     const cors = {
       "Access-Control-Allow-Origin": allowedOrigin,
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, X-CyberNote-Token",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin",
@@ -27,6 +29,25 @@ export default {
       });
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    const path = new URL(request.url).pathname.replace(/\/+$/, "");
+    if (request.method === "GET" && path === "/usage") {
+      if (origin && origin !== allowedOrigin) return json({ error: "origin_not_allowed" }, 403);
+      if (!env.APP_TOKEN || !safeEqual(request.headers.get("X-CyberNote-Token") || "", env.APP_TOKEN)) return json({ error: "unauthorized" }, 401);
+      if (!env.ADMIN_API_KEY) return json({ error: "admin_key_missing" }, 400);
+      const now = new Date(), start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      let page = null, cents = 0, guard = 0;
+      do {
+        const q = new URL("https://api.anthropic.com/v1/organizations/cost_report");
+        q.searchParams.set("starting_at", start.toISOString()); q.searchParams.set("bucket_width", "1d"); q.searchParams.set("limit", "31");
+        if (page) q.searchParams.set("page", page);
+        const r = await fetch(q, { headers: { "x-api-key": env.ADMIN_API_KEY, "anthropic-version": "2023-06-01" } });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j) return json({ error: (j && j.error) || "cost_report_failed", status: r.status }, 502);
+        for (const b of j.data || []) for (const x of b.results || []) cents += Number(x.amount) || 0; // az összeg centben (USD)
+        page = j.has_more ? j.next_page : null;
+      } while (page && ++guard < 10);
+      return json({ ok: true, month: start.toISOString().slice(0, 7), usd: cents / 100 });
+    }
     if (request.method === "GET") return json({ ok: true, service: "CyberNote AI proxy" });
     if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
@@ -55,7 +76,7 @@ export default {
 
     const payload = {
       model,
-      max_tokens: Math.min(Number(body.max_tokens) || 1500, 4000),
+      max_tokens: Math.min(Number(body.max_tokens) || 1500, 16000),
       messages: body.messages,
     };
     if (body.system !== undefined) payload.system = body.system;

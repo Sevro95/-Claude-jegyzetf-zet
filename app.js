@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.9.2";
+const APP_VERSION = "3.9.3";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -2415,8 +2415,72 @@ async function aiCall(body) {
     if (typ === "not_found_error" || raw === "model_not_allowed") throw new Error("Ismeretlen modell: " + (S.set.aiModel || "") + ". (" + raw + ")");
     throw new Error("HTTP " + r.status + (raw ? " – " + raw : ""));
   }
+  try { aiCount(j); } catch (e) { logError("tokenszámláló", e && e.message); }
   return j;
 }
+/* ================= Tokenszámláló (eszközönként, havonta) ================= */
+const monthKey = (d = new Date()) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+const DEF_PRICE = { in: 2, out: 10 }; // USD / millió token – Claude Sonnet 5.5 listaára (platform.claude.com/docs/en/about-claude/pricing)
+function aiLedger() {
+  const u = S.set.aiUse || (S.set.aiUse = {}); const k = monthKey();
+  return u[k] || (u[k] = { in: 0, out: 0, cr: 0, cw: 0, calls: 0, usd: 0 });
+}
+const aiPrice = () => ({ in: +S.set.aiPriceIn || DEF_PRICE.in, out: +S.set.aiPriceOut || DEF_PRICE.out });
+function aiCount(j) {
+  const u = j && j.usage; if (!u) return; const L = aiLedger(), p = aiPrice();
+  const i = u.input_tokens || 0, o = u.output_tokens || 0, cr = u.cache_read_input_tokens || 0, cw = u.cache_creation_input_tokens || 0;
+  L.in += i; L.out += o; L.cr += cr; L.cw += cw; L.calls++;
+  L.usd += (i * p.in + o * p.out + cr * p.in * .1 + cw * p.in * 1.25) / 1e6;
+  saveSettings(); aiMeterUpd();
+  const b = +S.set.aiBudget || 0, pct = b ? L.usd / b : 0;
+  if (b && pct >= .8 && !L.warned80) { L.warned80 = 1; saveSettings(); toast("Figyelem: a havi AI-keret " + Math.round(pct * 100) + "%-a elfogyott (kb. $" + L.usd.toFixed(2) + " / $" + b + ")"); }
+}
+const fmtTok = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(".", ",") + " M" : n >= 1e3 ? (n / 1e3).toFixed(1).replace(".", ",") + " e" : String(n);
+function aiMeterUpd() {
+  const m = $("aiMeter"); if (!m) return; m.hidden = !aiReady(); if (m.hidden) return;
+  const L = aiLedger(), b = +S.set.aiBudget || 0, spent = S.set.aiReal && S.set.aiReal.month === monthKey() ? Math.max(S.set.aiReal.usd, L.usd) : L.usd;
+  $("aiMeterTxt").textContent = "$" + spent.toFixed(2) + (b ? " / $" + b : "");
+  const pct = b ? Math.min(1, spent / b) : 0; $("aiBarFill").style.width = (b ? pct * 100 : 0) + "%";
+  m.dataset.lvl = !b ? "" : pct >= 1 ? "over" : pct >= .8 ? "warn" : "ok";
+  m.title = "Claude ebben a hónapban: " + fmtTok(L.in + L.cr + L.cw) + " bemenő + " + fmtTok(L.out) + " kimenő token, " + L.calls + " hívás";
+}
+async function aiRealSpend() { // a Worker /usage végpontja – csak ha a Workerben van ADMIN_API_KEY
+  const base = S.set.aiUrl.replace(/\/+$/, "");
+  const r = await fetch(base + "/usage", { headers: { "X-CyberNote-Token": S.set.aiToken } });
+  let j = null; try { j = await r.json(); } catch (_) {}
+  if (!r.ok || !j || j.error) throw new Error(j && j.error === "admin_key_missing" ? "a Workerben nincs ADMIN_API_KEY" : j && j.error === "not_found" ? "a Worker még a régi változat (nincs /usage)" : "HTTP " + r.status + (j && j.error ? " – " + (j.error.message || j.error) : ""));
+  S.set.aiReal = { month: monthKey(), usd: +j.usd || 0, at: Date.now() }; saveSettings(); aiMeterUpd(); return S.set.aiReal;
+}
+function aiMeterDialog() {
+  const L = aiLedger(), b = +S.set.aiBudget || 0, p = aiPrice(), real = S.set.aiReal && S.set.aiReal.month === monthKey() ? S.set.aiReal : null;
+  const spent = real ? Math.max(real.usd, L.usd) : L.usd;
+  const body = document.createElement("div"); body.className = "dlgbody";
+  const hist = Object.entries(S.set.aiUse || {}).sort((a, c) => c[0].localeCompare(a[0])).slice(0, 6)
+    .map(([k, v]) => `<tr><td>${k}</td><td>${fmtTok(v.in + v.cr + v.cw)}</td><td>${fmtTok(v.out)}</td><td>${v.calls}</td><td>$${v.usd.toFixed(2)}</td></tr>`).join("");
+  body.innerHTML = `
+    <div class="aibig"><b>$${spent.toFixed(2)}</b>${b ? ` <span>/ $${b} havi keret · ${Math.round(spent / b * 100)}%</span>` : ` <span>· nincs megadva keret</span>`}</div>
+    ${b ? `<div class="aibar lg"><i style="width:${Math.min(100, spent / b * 100)}%"></i></div><p>Hátralévő: <b>$${Math.max(0, b - spent).toFixed(2)}</b></p>` : ""}
+    <p>Ebben a hónapban (${monthKey()}), ezen az eszközön: <b>${fmtTok(L.in + L.cr + L.cw)}</b> bemenő + <b>${fmtTok(L.out)}</b> kimenő token, ${L.calls} hívás, becsült költség <b>$${L.usd.toFixed(3)}</b> (${p.in} / ${p.out} USD per millió token).</p>
+    <p>${real ? `A Claude Console szerinti valós havi költés: <b>$${real.usd.toFixed(2)}</b> (lekérve: ${new Date(real.at).toLocaleString("hu-HU")}).` : "A valós (Console szerinti) költés lekéréséhez a Workerben ADMIN_API_KEY kell – lásd lent."}</p>
+    <div class="seg"><button class="tb" id="aiRealBtn">Valós költés lekérése</button><button class="tb" id="aiReset">Havi számláló nullázása</button></div>
+    <p id="aiRealSt"></p>
+    <table class="aitab"><thead><tr><th>Hónap</th><th>Be</th><th>Ki</th><th>Hívás</th><th>Becslés</th></tr></thead><tbody>${hist || "<tr><td colspan=5>Még nincs adat.</td></tr>"}</tbody></table>
+    <label for="aiBud">Havi keret (USD) – a Console-ban beállított költési limited vagy egy saját felső határ</label>
+    <input type="text" id="aiBud" inputmode="decimal" placeholder="pl. 10">
+    <div class="row"><label for="aiPi" style="flex:1">Ár: bemenő USD / millió token</label><input type="text" id="aiPi" inputmode="decimal" style="width:90px"></div>
+    <div class="row"><label for="aiPo" style="flex:1">Ár: kimenő USD / millió token</label><input type="text" id="aiPo" inputmode="decimal" style="width:90px"></div>
+    <p>A becslés csak az ezen az eszközön indított hívásokat számolja. A pontos egyenleget és a limitet a Claude Console › Billing oldalon látod; programból az Anthropic ezt nem adja ki.</p>`;
+  const f = id => body.querySelector(id);
+  f("#aiBud").value = S.set.aiBudget || ""; f("#aiPi").value = S.set.aiPriceIn || DEF_PRICE.in; f("#aiPo").value = S.set.aiPriceOut || DEF_PRICE.out;
+  f("#aiRealBtn").onclick = async () => { f("#aiRealSt").textContent = "Lekérés…"; try { const x = await aiRealSpend(); f("#aiRealSt").textContent = "Console szerint ebben a hónapban: $" + x.usd.toFixed(2); } catch (e) { f("#aiRealSt").textContent = "Nem sikerült: " + e.message; } };
+  f("#aiReset").onclick = () => { const u = S.set.aiUse || {}; delete u[monthKey()]; saveSettings(); aiMeterUpd(); f("#aiRealSt").textContent = "A havi számláló nullázva."; };
+  dialog("Claude tokenszámláló", body, [["Bezár"], ["Mentés", "pri", () => {
+    const num = v => { const n = parseFloat(String(v).replace(",", ".")); return n > 0 ? n : 0; };
+    S.set.aiBudget = num(f("#aiBud").value) || ""; S.set.aiPriceIn = num(f("#aiPi").value) || DEF_PRICE.in; S.set.aiPriceOut = num(f("#aiPo").value) || DEF_PRICE.out;
+    const L2 = aiLedger(); L2.warned80 = 0; saveSettings(); aiMeterUpd(); toast("Mentve");
+  }]]);
+}
+$("aiMeter").onclick = aiMeterDialog;
 const blobB64 = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(b); });
 const AI_SYS = `Egy épületgépész tervező kézírásos projektjegyzet-lapját kapod képként (CyberNote jegyzetfüzet). A lapon tollal írt magyar szöveg, vázlatok, számolások lehetnek, rácsos vagy üres papíron; importált PDF vagy kép is lehet a háttérben.
 Olvasd el a lapot, és KIZÁRÓLAG egy JSON objektumot adj vissza, magyarázat és kódblokk nélkül, ezzel a szerkezettel:
@@ -2730,7 +2794,8 @@ async function recSummary(r) {
     .map(pg => `${pageNoOf(pg)}. lap${pg.title ? " – " + pg.title : ""}: ${pg.ai.res.osszefoglalo || ""}`).join("\n") : "";
   const text = `Füzet: ${nb ? nb.name : "?"} · ${new Date(r.start).toLocaleString("hu-HU")} · ${fmtDur(r.dur)}\n\nÁtirat:\n${r.tr.map(t => `[${fmtDur(t.off)}] ${t.text}`).join("\n")}${notes ? "\n\nA közben írt lapok elemzése:\n" + notes : ""}`;
   busy("Claude összefoglalót készít…");
-  try { const j = await aiCall({ max_tokens: 2500, system: REC_SYS, messages: [{ role: "user", content: text }] });
+  try { const j = await aiCall({ max_tokens: 8000, system: REC_SYS, messages: [{ role: "user", content: text }] });
+    if (j.stop_reason === "max_tokens") throw new Error("A válasz elérte a hosszkorlátot (" + ((j.usage && j.usage.output_tokens) || "?") + " token), ezért csonka lett. Ha a közvetítő (Worker) még a régi, 4000 tokenes változat, frissítsd a worker/cybernote-ai-worker.js szerint.");
     const t = aiText(j), a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a < 0) throw new Error("A válasz nem értelmezhető.");
     const o = JSON.parse(t.slice(a, b + 1)); for (const k of ["dontesek", "feladatok", "kerdesek"]) if (!Array.isArray(o[k])) o[k] = [];
     r.sum = { at: Date.now(), model: j.model || S.set.aiModel, res: o, usage: j.usage || null }; saveRecs(); unbusy(); recSumShow(r); if (!$("recPanel").hidden) renderRecList(); }
@@ -2944,7 +3009,7 @@ function settingsDialog() {
     <input type="password" id="aiTok" autocomplete="off" spellcheck="false">
     <label for="aiModel">Modell</label>
     <input type="text" id="aiModel" autocomplete="off" spellcheck="false">
-    <div class="seg"><button class="btn pri" id="aiSave">Mentés és teszt</button></div>
+    <div class="seg"><button class="btn pri" id="aiSave">Mentés és teszt</button><button class="btn" id="aiMeterOpen">Tokenszámláló és keret</button></div>
     <p id="aiState"></p>
     <strong>Tárhely ezen az eszközön</strong>
     <p id="stInfo">A jegyzetek a böngésző tárhelyén vannak; a Drive-ra másolat kerül.</p>
@@ -2987,13 +3052,14 @@ function settingsDialog() {
   aiSt.textContent = aiReady() ? "Beállítva." : "Nincs beállítva.";
   body.querySelector("#aiSave").onclick = async () => {
     const u = aiUrl.value.trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) { aiSt.textContent = "A címnek https://-sel kell kezdődnie."; return; }
-    S.set.aiUrl = u; S.set.aiToken = aiTok.value.trim(); S.set.aiModel = aiModel.value.trim() || DEF_SET.aiModel; saveSettings();
+    S.set.aiUrl = u; S.set.aiToken = aiTok.value.trim(); S.set.aiModel = aiModel.value.trim() || DEF_SET.aiModel; saveSettings(); aiMeterUpd();
     if (!aiReady()) { aiSt.textContent = "Elmentve – a cím és a token is kell a működéshez."; return; }
     aiSt.textContent = "Teszt…";
     try { const j = await aiCall({ max_tokens: 30, messages: [{ role: "user", content: "Válaszolj egy szóval: működik?" }] });
       aiSt.textContent = "Működik ✓ – válasz: " + aiText(j).trim().slice(0, 60); }
     catch (e) { aiSt.textContent = "Nem sikerült: " + e.message; }
   };
+  body.querySelector("#aiMeterOpen").onclick = () => setTimeout(aiMeterDialog, 0);
   body.querySelector("#stCalc").onclick = async () => { const pre = body.querySelector("#stText"); pre.hidden = false; pre.textContent = "Számolás…";
     try { pre.textContent = await storageReport(); } catch (e) { pre.textContent = "Nem sikerült: " + e.message; } };
   markDrive(); markDbg(); markErr();
@@ -3073,7 +3139,7 @@ async function start() {
   narrow = innerWidth < 900; navVis = !narrow && S.set.navOn !== false; pagesVis = !narrow && S.set.pagesOn !== false;
   applyPanes(true); setTab(S.set.tab || "draw"); document.body.classList.toggle("ribbon-off", !!S.set.ribbonOff); $("bRibbon").setAttribute("aria-pressed", String(!!S.set.ribbonOff));
   setTool("pen"); layout();
-  await oneTimeCleanup();
+  await oneTimeCleanup(); aiMeterUpd();
   await openNotebook(nbOf(S.set.lastNb) ? S.set.lastNb : S.notebooks[0].id);
   for (const nb of S.notebooks) loadNotebookPages(nb).then(() => { updateOpenBadge(); renderListsSoon(); }).catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

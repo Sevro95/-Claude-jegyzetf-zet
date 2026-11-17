@@ -527,3 +527,18 @@ body.ribbon-off #dossier{border-top-color:transparent}
 .pbtn svg{width:14px;height:14px;stroke-width:2}
 .pbtn:disabled{opacity:.3}
 .psel{height:22px;border:1px solid var(--c,#C86BFF);border-radius:0;background:#0D0915;color:#fff;font-family:var(--fx);font-size:12px;padding:0 4px;box-shadow:0 0 8px color-mix(in srgb,var(--c,#C86BFF) 45%,transparent)}
+
+/* AI tokenszámláló a címsorban */
+.aimeter{gap:6px;font-family:var(--fx);font-size:12px;color:#C9BFEA;padding:0 8px}
+.aimeter .ail{color:var(--neon2);font-weight:700;letter-spacing:.08em}
+.aibar{display:inline-block;width:46px;height:6px;background:#2D2246;position:relative;overflow:hidden}
+.aibar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--neon2);box-shadow:0 0 6px var(--neon2)}
+.aimeter[data-lvl="warn"] .aibar i{background:#FFD24A;box-shadow:0 0 6px #FFD24A}
+.aimeter[data-lvl="over"] .aibar i{background:var(--pink);box-shadow:0 0 6px var(--pink)}
+.aimeter[data-lvl="over"] #aiMeterTxt{color:var(--pink)}
+.aibar.lg{width:100%;height:10px}
+.aibig{font-family:var(--fx);font-size:15px}.aibig b{font-size:28px;color:#fff}.aibig span{color:var(--muted)}
+.aitab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.aitab th,.aitab td{text-align:right;padding:4px 6px;border-bottom:1px solid #2D2246}.aitab th:first-child,.aitab td:first-child{text-align:left}
+.aitab th{color:var(--neon2);font-family:var(--fx);font-weight:600;font-size:11px;letter-spacing:.06em}
+@media (max-width:700px){.aimeter .aibar{display:none}}
