@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.9.1";
+const APP_VERSION = "3.9.2";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1411,6 +1411,41 @@ async function deletePage(pg) {
   else { renderPageList(); renderTree(); }
   toast("Lap törölve"); Sync.schedule(3000);
 }
+/* Több lap törlése egyszerre (pl. egy teljes PDF): lapok, háttérképek, eredeti PDF – helyben és a Drive-on */
+async function deletePages(pages, quiet) {
+  const now = Date.now(), wasCur = pages.includes(S.page); let back = null;
+  S.deleted.blobs = S.deleted.blobs || {};
+  for (const pg of pages) {
+    const r = secOf(pg.id); if (!r) continue;
+    const i = r.sec.pages.indexOf(pg.id); r.sec.pages.splice(i, 1); r.nb.updated = now; back = back || r;
+    S.deleted.pages[pg.id] = now; S.pages.delete(pg.id); await DB.del("pages", pg.id);
+    if (pg.bg) { S.deleted.blobs[pg.bg.id] = now; await DB.del("blobs", pg.bg.id).catch(() => {}); }
+  }
+  // az eredeti PDF-fájl csak akkor törlődik, ha már egyik lap sem hivatkozik rá
+  for (const pdf of new Set(pages.map(p => p.bg && p.bg.pdf).filter(Boolean)))
+    if (![...S.pages.values()].some(p => p.bg && p.bg.pdf === pdf)) { S.deleted.blobs[pdf] = now; await DB.del("blobs", pdf).catch(() => {}); }
+  saveDeleted(); saveNotebooks();
+  if (quiet) return;
+  if (wasCur && back) {
+    S.page = null; const s = back.sec;
+    if (s.pages.some(p => S.pages.has(p))) await openPage(s.pages.find(p => S.pages.has(p)));
+    else { const regs = regSecs(back.nb); await openSection(regs[0] || back.nb.sections[0]); }
+  } else { renderPageList(); renderTree(); }
+  Sync.schedule(3000);
+}
+function pdfDocDialog(pages) {
+  const name = docName(pages[0]), inked = pages.filter(p => p.strokes.length || (p.notes || []).length || p.marks.length).length;
+  const pn = p => (p.bg && p.bg.pn) || pages.indexOf(p) + 1;
+  const body = `<p><b>${esc(name)}</b> · ${pages.length} oldal · feltöltve ${fmtDate(pages[0].created)} ${fmtTime(pages[0].created)}</p>` +
+    (inked ? `<p>${inked} oldalán van kézírás, jelölő vagy cetli – ezek is törlődnek.</p>` : "");
+  const btns = [["Mégse"]];
+  if (pages.length > 1 && S.page && pages.includes(S.page)) btns.push([`Csak a(z) ${pn(S.page)}. oldal`, "", () => setTimeout(() => dialog("Oldal törlése",
+    `<p>A(z) „${esc(name)}” ${pn(S.page)}. oldala törlődik, a Drive-ról is. Ez nem vonható vissza.</p>`, [["Mégse"], ["Törlés", "dan", async () => { await deletePages([S.page]); toast("Oldal törölve"); }]]), 0)]);
+  btns.push(["Teljes PDF törlése", "dan", () => setTimeout(() => dialog("PDF törlése",
+    `<p>A(z) „${esc(name)}” mind a ${pages.length} oldala törlődik a rá írt jegyzetekkel együtt, ezen az eszközön és a Drive-ról is. Ez nem vonható vissza.</p>`,
+    [["Mégse"], ["Végleges törlés", "dan", async () => { await deletePages(pages); toast("PDF törölve: " + name); }]]), 0)]);
+  dialog("PDF", body, btns);
+}
 function pageDialog(pg) {
   const r = secOf(pg.id); if (!r) return;
   const body = document.createElement("div"); body.className = "dlgbody";
@@ -1579,9 +1614,9 @@ function renderPageRow() {
       b.append(ic, el("span", "t", docName(pages[0])), el("span", "no", pages.length + " o."));
       if (oc) b.append(el("span", "dot"));
       b.title = docName(pages[0]) + " – " + pages.length + " oldal";
-      b.onclick = () => { if (cur) return; const back = pages.find(p => p.id === lastPg[k]) || pages[0]; openPage(back.id); };
+      b.onclick = () => { if (cur) { pdfDocDialog(pages); return; } const back = pages.find(p => p.id === lastPg[k]) || pages[0]; openPage(back.id); };
       box.append(b);
-      if (cur && pages.length > 1) {
+      if (cur) {
         const i = pages.indexOf(S.page), st = el("span", "pstep");
         const prev = el("button", "pbtn"); prev.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>'; prev.setAttribute("aria-label", "Előző oldal"); prev.disabled = i <= 0;
         prev.onclick = () => openPage(pages[i - 1].id);
@@ -1590,8 +1625,8 @@ function renderPageRow() {
         sel.onchange = () => openPage(sel.value);
         const next = el("button", "pbtn"); next.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>'; next.setAttribute("aria-label", "Következő oldal"); next.disabled = i >= pages.length - 1;
         next.onclick = () => openPage(pages[i + 1].id);
-        const info = el("button", "pbtn"); info.innerHTML = ICON_EDIT; info.setAttribute("aria-label", "Oldal adatai"); info.onclick = () => pageDialog(S.page);
-        st.append(prev, sel, next, info); box.append(st);
+        const info = el("button", "pbtn"); info.innerHTML = ICON_EDIT; info.setAttribute("aria-label", "PDF adatai és törlése"); info.title = "PDF adatai, törlés"; info.onclick = () => pdfDocDialog(pages);
+        if (pages.length > 1) st.append(prev, sel, next); st.append(info); box.append(st);
       }
     }
   }
@@ -2313,6 +2348,11 @@ const Sync = {
       }
     }
     for (const id of Object.keys(S.deleted.pages)) { const f = this.ids.files[id]; if (f) { if (f.json) await this.trash(f.json); if (f.img) await this.trash(f.img); delete this.ids.files[id]; delete this.ids.pushed[id]; } }
+    for (const id of Object.keys(S.deleted.blobs || {})) {
+      if (this.ids.bgs[id]) { await this.trash(this.ids.bgs[id]); delete this.ids.bgs[id]; }
+      if (this.ids.pdfs && this.ids.pdfs[id]) { await this.trash(this.ids.pdfs[id]); delete this.ids.pdfs[id]; }
+    }
+    await this.saveIds();
   },
   buildIndex() {
     const pages = {};
@@ -3008,6 +3048,18 @@ function fatal(e) {
   document.body.append(d); d.querySelector("#fRe").onclick = () => location.reload(); d.querySelector("#fHard").onclick = () => hardReload();
 }
 
+/* Egyszeri, célzott takarítás (azonosítók alapján, csak egyszer fut eszközönként) */
+const CLEANUPS = [{ id: "2026-11-17-givaudan-eszrevetel", pages: ["mwj1oneik5ruk", "mwj1oni5sv0n3", "mwj1onl00jppd", "mwj1ono73n00m", "mwj1onrd5obqw", "mwj1onuc641m3", "mwj1onxi59y7v", "mwj1oo0pho74z",
+  "mwj1pqmzuqvdh", "mwj1pqq4rlblt", "mwj1pqssbcdik", "mwj1pqw5evnv1", "mwj1pqzh06bl4", "mwj1pr2avdt9a", "mwj1pr525pch0", "mwj1pr8j78dvu"] }];
+async function oneTimeCleanup() {
+  S.set.cleanups = S.set.cleanups || {};
+  for (const c of CLEANUPS) {
+    if (S.set.cleanups[c.id]) continue;
+    const pages = []; for (const id of c.pages) { const pg = await loadPage(id); if (pg) pages.push(pg); }
+    if (pages.length) { await deletePages(pages, true); setTimeout(() => toast(pages.length + " PDF-oldal törölve (givaudan észrevétel, 2 példány)"), 1500); Sync.schedule(4000); }
+    S.set.cleanups[c.id] = Date.now(); saveSettings();
+  }
+}
 /* ================= Indulás ================= */
 async function start() {
   try { await DB.open(); } catch (e) { toast("A tároló nem nyitható meg: " + e.message); return; }
@@ -3021,6 +3073,7 @@ async function start() {
   narrow = innerWidth < 900; navVis = !narrow && S.set.navOn !== false; pagesVis = !narrow && S.set.pagesOn !== false;
   applyPanes(true); setTab(S.set.tab || "draw"); document.body.classList.toggle("ribbon-off", !!S.set.ribbonOff); $("bRibbon").setAttribute("aria-pressed", String(!!S.set.ribbonOff));
   setTool("pen"); layout();
+  await oneTimeCleanup();
   await openNotebook(nbOf(S.set.lastNb) ? S.set.lastNb : S.notebooks[0].id);
   for (const nb of S.notebooks) loadNotebookPages(nb).then(() => { updateOpenBadge(); renderListsSoon(); }).catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
