@@ -517,3 +517,13 @@ body.ribbon-off #dossier{border-top-color:transparent}
 #recTest{grid-column:1/-1}
 #recTestOut{white-space:pre-wrap;font-size:12px}
 .trl.near{background:color-mix(in srgb,var(--accent) 18%,transparent);border-radius:6px;padding:2px 4px}
+
+/* PDF: egy dokumentum = egy fül, benne lapozó */
+.ptab.pdoc{flex:0 1 260px}
+.ptab .pic{display:inline-flex;flex:none}.ptab .pic svg{width:14px;height:14px;stroke:var(--c,#C86BFF)}
+.ptab.pdoc .no{order:3;margin-left:auto;font-weight:600;opacity:.7}
+.pstep{flex:none;display:flex;align-items:center;gap:3px;padding:0 6px 0 2px}
+.pbtn{width:26px;height:22px;min-width:26px;min-height:0;padding:0;border:1px solid #3A2C5C;border-radius:0;background:#0D0915;color:#C9BFEA}
+.pbtn svg{width:14px;height:14px;stroke-width:2}
+.pbtn:disabled{opacity:.3}
+.psel{height:22px;border:1px solid var(--c,#C86BFF);border-radius:0;background:#0D0915;color:#fff;font-family:var(--fx);font-size:12px;padding:0 4px;box-shadow:0 0 8px color-mix(in srgb,var(--c,#C86BFF) 45%,transparent)}

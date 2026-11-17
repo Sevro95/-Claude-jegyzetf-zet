@@ -5,7 +5,7 @@
  */
 (() => {
 "use strict";
-const APP_VERSION = "3.9.0";
+const APP_VERSION = "3.9.1";
 /* Hibanapló: minden el nem kapott hibát megjegyez (Beállítások › Hibanapló), hogy utólag kideríthető legyen */
 const ERRLOG = "jf_errlog";
 function logError(kind, msg) {
@@ -1371,7 +1371,7 @@ async function openPage(id, keepView) {
   if (S.page && S.page !== pg) persistPage(S.page, true);
   const r = secOf(id); if (r) { S.nb = r.nb; S.sec = r.sec; S.set.lastNb = r.nb.id; S.set.lastSec[r.nb.id] = r.sec.id; }
   if (S.page !== pg) { clearSel(); hideNoteBar(); hideStkBar(); }
-  S.page = pg; if (S.sec) { S.set.lastPage[S.sec.id] = id; if (!special(S.sec)) S.set.lastRegSec = S.sec.id; } saveSettings();
+  S.page = pg; if (S.sec) { S.set.lastPage[S.sec.id] = id; if (!special(S.sec)) S.set.lastRegSec = S.sec.id; if (S.sec.pdf) (S.set.lastPdfPage || (S.set.lastPdfPage = {}))[pdfKey(pg)] = id; } saveSettings();
   await ensureBg(pg); tile = null;
   if (!keepView) { V.z = 1; V.K = V.fitK; V.tx = PAD; V.ty = PAD; }
   clampView(); render(); updUR(); renderPageList(); renderTree(); updateOpenBadge(); updTitle();
@@ -1569,7 +1569,32 @@ function renderPageRow() {
     b.append(el("span", "no", no), el("span", "t", t)); if (openCountOf(pg)) b.append(el("span", "dot"));
     b.onclick = () => cur ? pageDialog(pg) : openPage(pg.id); box.append(b);
   };
-  if (view === "pdf") { for (const pages of pdfDocsOf(sec)) pages.forEach((pg, i) => add(pg, (pg.bg && pg.bg.pn ? pg.bg.pn : i + 1) + ".", docName(pages[0]))); }
+  if (view === "pdf") {
+    // egy PDF = egy fül; a megnyitott PDF-en belül lapozó
+    const lastPg = S.set.lastPdfPage || (S.set.lastPdfPage = {});
+    for (const pages of pdfDocsOf(sec)) {
+      const k = pdfKey(pages[0]), cur = pages.includes(S.page), oc = pages.reduce((a, p) => a + openCountOf(p), 0);
+      const b = el("button", "ptab pdoc" + (cur ? " on" : "")); b.setAttribute("aria-current", String(cur));
+      const ic = el("span", "pic"); ic.innerHTML = ICON_PDF;
+      b.append(ic, el("span", "t", docName(pages[0])), el("span", "no", pages.length + " o."));
+      if (oc) b.append(el("span", "dot"));
+      b.title = docName(pages[0]) + " – " + pages.length + " oldal";
+      b.onclick = () => { if (cur) return; const back = pages.find(p => p.id === lastPg[k]) || pages[0]; openPage(back.id); };
+      box.append(b);
+      if (cur && pages.length > 1) {
+        const i = pages.indexOf(S.page), st = el("span", "pstep");
+        const prev = el("button", "pbtn"); prev.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>'; prev.setAttribute("aria-label", "Előző oldal"); prev.disabled = i <= 0;
+        prev.onclick = () => openPage(pages[i - 1].id);
+        const sel = document.createElement("select"); sel.className = "psel"; sel.setAttribute("aria-label", "Oldal");
+        pages.forEach((p, j) => { const o = document.createElement("option"); o.value = p.id; o.textContent = (p.bg && p.bg.pn ? p.bg.pn : j + 1) + " / " + pages.length + (openCountOf(p) ? " •" : ""); if (p === S.page) o.selected = true; sel.append(o); });
+        sel.onchange = () => openPage(sel.value);
+        const next = el("button", "pbtn"); next.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>'; next.setAttribute("aria-label", "Következő oldal"); next.disabled = i >= pages.length - 1;
+        next.onclick = () => openPage(pages[i + 1].id);
+        const info = el("button", "pbtn"); info.innerHTML = ICON_EDIT; info.setAttribute("aria-label", "Oldal adatai"); info.onclick = () => pageDialog(S.page);
+        st.append(prev, sel, next, info); box.append(st);
+      }
+    }
+  }
   else if (view === "gal") sec.pages.forEach((id, i) => { const pg = S.pages.get(id); if (pg) add(pg, (i + 1) + ".", pageLabel(pg)); });
   else for (const s of regs) {
     if (regs.length > 1) { const d = el("span", "psec", s.name); d.title = "Szakasz: " + s.name + " – koppints a beállításokhoz"; d.onclick = () => sectionDialog(nb, s); box.append(d); }
